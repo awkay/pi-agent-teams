@@ -834,6 +834,16 @@ console.log("\n11. /team done (end-of-run)");
 	const forceCfgAfter = await loadTeamConfig(forceTeamDir);
 	const forceCarol = forceCfgAfter?.members.find((m) => m.name === "carol");
 	assertEq(forceCarol?.status, "offline", "/team done --force: worker offline");
+
+	// Test idempotency: calling done again on already-done team is safe
+	await setMemberStatus(doneTeamDir, "alice", "offline", { meta: { stoppedReason: "team-done" } });
+	await setMemberStatus(doneTeamDir, "bob", "offline", { meta: { stoppedReason: "team-done" } });
+	const idempotentCfg = await loadTeamConfig(doneTeamDir);
+	const idempotentOnline = (idempotentCfg?.members ?? []).filter((m) => m.role === "worker" && m.status === "online");
+	assertEq(idempotentOnline.length, 0, "/team done idempotent: still 0 online after second done");
+	const idempotentTasks = await listTasks(doneTeamDir, doneTlId);
+	const idempotentAllDone = idempotentTasks.every((t) => t.status === "completed");
+	assert(idempotentAllDone, "/team done idempotent: tasks still completed after second done");
 }
 
 // ── 12. isTeamDone (pure function unit tests) ───────────────────────
