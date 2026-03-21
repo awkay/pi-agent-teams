@@ -4,6 +4,17 @@ import { spawn } from "node:child_process";
 import { getTeamsHooksDir } from "./paths.js";
 import type { TeamTask } from "./task-store.js";
 
+/**
+ * Hook contract version.  Bump this integer when making breaking changes
+ * to the environment variables or JSON payload shape passed to hook scripts.
+ *
+ * Compatibility policy: see docs/hook-contract.md
+ *
+ * Additive (no bump required):  new fields, new env vars, new event types.
+ * Breaking (bump required):     removing/renaming fields, changing types, restructuring payload.
+ */
+export const HOOK_CONTRACT_VERSION = 1;
+
 export type TeamsHookEvent = "idle" | "task_completed" | "task_failed";
 
 export type TeamsHookInvocation = {
@@ -129,7 +140,7 @@ function truncateField(value: string, max: number): string {
 function getHookContextJson(invocation: TeamsHookInvocation): string {
 	const task = invocation.completedTask;
 	const payload = {
-		version: 1,
+		version: HOOK_CONTRACT_VERSION,
 		event: invocation.event,
 		team: {
 			id: invocation.teamId,
@@ -302,7 +313,7 @@ export async function runTeamsHook(opts: {
 	const baseEnv: NodeJS.ProcessEnv = {
 		...env,
 		PI_TEAMS_HOOK_EVENT: opts.invocation.event,
-		PI_TEAMS_HOOK_CONTEXT_VERSION: "1",
+		PI_TEAMS_HOOK_CONTEXT_VERSION: String(HOOK_CONTRACT_VERSION),
 		PI_TEAMS_HOOK_CONTEXT_JSON: getHookContextJson(opts.invocation),
 		PI_TEAMS_TEAM_ID: opts.invocation.teamId,
 		PI_TEAMS_TEAM_DIR: opts.invocation.teamDir,

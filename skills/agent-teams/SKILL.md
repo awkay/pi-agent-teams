@@ -195,3 +195,11 @@ Teammates and the leader communicate via JSON messages with a `type` field:
 | `plan_approved` | leader -> teammate | Proceed with implementation |
 | `plan_rejected` | leader -> teammate | Revise plan (includes feedback) |
 | `peer_dm_sent` | teammate -> leader | CC notification of peer message |
+
+## Hook contract
+
+Hooks (`on_idle`, `on_task_completed`, `on_task_failed`) receive a versioned contract via env vars and a JSON payload. The contract version is set in `PI_TEAMS_HOOK_CONTEXT_VERSION` and the `version` field of `PI_TEAMS_HOOK_CONTEXT_JSON`.
+
+Hook scripts should check the version and fail fast on unsupported versions. Additive changes (new fields, new env vars) do not bump the version. Breaking changes (removed/renamed fields, type changes) require a version bump.
+
+Full contract spec: `docs/hook-contract.md`

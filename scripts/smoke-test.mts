@@ -38,6 +38,7 @@ import {
 	getTeamsHookFailureAction,
 	getTeamsHookFollowupOwnerPolicy,
 	getTeamsHookMaxReopensPerTask,
+	HOOK_CONTRACT_VERSION,
 	resolveTeamsHookFollowupOwner,
 	runTeamsHook,
 	shouldCreateHookFollowupTask,
@@ -667,7 +668,7 @@ console.log("\n9. teams-hooks (quality gates)");
 		event: string | null;
 		taskId: string | null;
 	};
-	assertEq(hookOut.contextVersion, "1", "hook context version env is set");
+	assertEq(hookOut.contextVersion, String(HOOK_CONTRACT_VERSION), "hook context version env is set");
 	assertEq(hookOut.event, "task_completed", "hook event env is set");
 	assertEq(hookOut.taskId, "1", "hook task id env is set");
 	const hookContext = JSON.parse(hookOut.contextJson ?? "{}") as {
@@ -675,7 +676,7 @@ console.log("\n9. teams-hooks (quality gates)");
 		event?: string;
 		task?: { id?: string; status?: string } | null;
 	};
-	assertEq(hookContext.version, 1, "hook context payload version is 1");
+	assertEq(hookContext.version, HOOK_CONTRACT_VERSION, "hook context payload version matches HOOK_CONTRACT_VERSION");
 	assertEq(hookContext.event, "task_completed", "hook context payload includes event");
 	assertEq(hookContext.task?.id, "1", "hook context payload includes task id");
 	assertEq(hookContext.task?.status, "completed", "hook context payload includes task status");
@@ -993,6 +994,20 @@ console.log("\n14. docs/help drift guard");
 		assert(readme.includes("PI_TEAMS_STALL_THRESHOLD_MS"), "README mentions stall threshold env var");
 		assert(readme.includes("Stall detection"), "README mentions stall detection feature");
 		assert(readme.includes("Time in state"), "README mentions time-in-state feature");
+		assert(readme.includes("docs/hook-contract.md"), "README mentions hook contract doc");
+	}
+
+	const hookContractPath = path.join(process.cwd(), "docs/hook-contract.md");
+	if (!fs.existsSync(hookContractPath)) {
+		console.log("  (skipped) docs/hook-contract.md not found");
+	} else {
+		const hookContract = fs.readFileSync(hookContractPath, "utf8");
+		assert(hookContract.includes("PI_TEAMS_HOOK_CONTEXT_VERSION"), "hook-contract.md documents context version env var");
+		assert(hookContract.includes("PI_TEAMS_HOOK_CONTEXT_JSON"), "hook-contract.md documents context json env var");
+		assert(hookContract.includes("PI_TEAMS_HOOK_EVENT"), "hook-contract.md documents event env var");
+		assert(hookContract.includes("without a version bump (additive)"), "hook-contract.md defines additive changes");
+		assert(hookContract.includes("requires a major version bump (breaking)"), "hook-contract.md defines breaking changes");
+		assert(hookContract.includes("version negotiation") || hookContract.includes("Version negotiation"), "hook-contract.md includes version negotiation guidance");
 	}
 
 	const skillPath = path.join(process.cwd(), "skills/agent-teams/SKILL.md");
@@ -1005,6 +1020,7 @@ console.log("\n14. docs/help drift guard");
 		assert(skill.includes("urgent"), "SKILL.md mentions urgent flag");
 		assert(skill.includes("model_policy_get"), "SKILL.md mentions model_policy_get action");
 		assert(skill.includes("hooks_policy_get"), "SKILL.md mentions hooks_policy_get action");
+		assert(skill.includes("hook-contract.md"), "SKILL.md mentions hook contract doc");
 	}
 }
 
