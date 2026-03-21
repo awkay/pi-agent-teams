@@ -50,6 +50,7 @@ import {
 	releaseTeamAttachClaim,
 } from "../extensions/teams/team-attach-claim.js";
 import { getTeamHelpText } from "../extensions/teams/leader-team-command.js";
+import { isTeamDone } from "../extensions/teams/teams-ui-shared.js";
 import {
 	TEAM_MAILBOX_NS,
 	isIdleNotification,
@@ -750,8 +751,81 @@ console.log("\n11. /team done (end-of-run)");
 	assert(offlineAlice?.meta?.["stoppedReason"] === "team-done", "/team done: alice has stoppedReason=team-done");
 }
 
-// ── 12. docs/help drift guard ────────────────────────────────────────
-console.log("\n12. docs/help drift guard");
+// ── 12. isTeamDone (pure function unit tests) ───────────────────────
+console.log("\n12. isTeamDone");
+{
+	// Minimal mock: isTeamDone only reads .status from TeammateRpc values
+	type MockRpc = { status: string };
+	const mockMap = (entries: Array<[string, MockRpc]>) =>
+		new Map(entries) as unknown as ReadonlyMap<string, import("../extensions/teams/teammate-rpc.js").TeammateRpc>;
+
+	const completedTask = (id: string): import("../extensions/teams/task-store.js").TeamTask => ({
+		id, subject: "x", description: "", status: "completed",
+		blocks: [], blockedBy: [], metadata: {}, createdAt: "", updatedAt: "",
+	});
+	const pendingTask = (id: string): import("../extensions/teams/task-store.js").TeamTask => ({
+		id, subject: "x", description: "", status: "pending",
+		blocks: [], blockedBy: [], metadata: {}, createdAt: "", updatedAt: "",
+	});
+	const inProgressTask = (id: string): import("../extensions/teams/task-store.js").TeamTask => ({
+		id, subject: "x", description: "", status: "in_progress",
+		blocks: [], blockedBy: [], metadata: {}, createdAt: "", updatedAt: "",
+	});
+
+	// No tasks → not done
+	assert(!isTeamDone([], mockMap([])), "isTeamDone: empty tasks = false");
+
+	// All completed, no teammates → done
+	assert(isTeamDone([completedTask("1"), completedTask("2")], mockMap([])), "isTeamDone: all completed, no teammates = true");
+
+	// All completed, all idle → done
+	assert(
+		isTeamDone([completedTask("1")], mockMap([["alice", { status: "idle" }]])),
+		"isTeamDone: all completed + idle teammate = true",
+	);
+
+	// All completed, one streaming → not done
+	assert(
+		!isTeamDone([completedTask("1")], mockMap([["alice", { status: "streaming" }]])),
+		"isTeamDone: all completed + streaming teammate = false",
+	);
+
+	// All completed, one starting → not done
+	assert(
+		!isTeamDone([completedTask("1")], mockMap([["alice", { status: "starting" }]])),
+		"isTeamDone: all completed + starting teammate = false",
+	);
+
+	// All completed, stopped teammate → done
+	assert(
+		isTeamDone([completedTask("1")], mockMap([["alice", { status: "stopped" }]])),
+		"isTeamDone: all completed + stopped teammate = true",
+	);
+
+	// Pending task → not done
+	assert(
+		!isTeamDone([completedTask("1"), pendingTask("2")], mockMap([])),
+		"isTeamDone: one pending = false",
+	);
+
+	// In-progress task → not done
+	assert(
+		!isTeamDone([completedTask("1"), inProgressTask("2")], mockMap([])),
+		"isTeamDone: one in-progress = false",
+	);
+
+	// Mixed: all completed, mixed teammate states (idle + stopped) → done
+	assert(
+		isTeamDone(
+			[completedTask("1"), completedTask("2")],
+			mockMap([["alice", { status: "idle" }], ["bob", { status: "stopped" }]]),
+		),
+		"isTeamDone: all completed + idle+stopped = true",
+	);
+}
+
+// ── 13. docs/help drift guard ────────────────────────────────────────
+console.log("\n13. docs/help drift guard");
 {
 	const help = getTeamHelpText();
 	assert(help.includes("/team done"), "help mentions /team done");
