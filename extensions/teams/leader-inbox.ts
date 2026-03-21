@@ -270,6 +270,11 @@ export async function pollLeaderInbox(opts: {
 			continue;
 		}
 
-		ctx.ui.notify(`Message from ${m.from}: ${m.text}`, "info");
+		// Unrecognized message = teammate DM → route to leader LLM context
+		if (sendLeaderLlmMessage) {
+			sendLeaderLlmMessage(`[Team DM] ${m.from}: ${m.text}`, { deliverAs: "followUp" });
+		} else {
+			ctx.ui.notify(`Message from ${m.from}: ${m.text}`, "info");
+		}
 	}
 }
