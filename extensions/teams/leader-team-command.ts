@@ -9,7 +9,11 @@ import { handleTeamAttachCommand, handleTeamDetachCommand } from "./leader-attac
 import {
 	handleTeamCleanupCommand,
 	handleTeamDelegateCommand,
+<<<<<<< HEAD
 	handleTeamDoneCommand,
+=======
+	handleTeamGcCommand,
+>>>>>>> origin/main
 	handleTeamKillCommand,
 	handleTeamPruneCommand,
 	handleTeamShutdownCommand,
@@ -57,6 +61,7 @@ const TEAM_HELP_TEXT = [
 	"  /team plan reject <name> [feedback...]",
 	"  /team done [--force]  # end run: stop teammates + hide widget",
 	"  /team cleanup [--force]",
+	"  /team gc [--dry-run] [--force] [--max-age-hours=N]  # remove old team dirs",
 	"  /team prune [--all]  # hide stale manual teammates (mark offline)",
 	"  /team task add <text...>",
 	"  /team task assign <id> <agent>",
@@ -232,6 +237,10 @@ export async function handleTeamCommand(opts: {
 				renderWidget,
 				style,
 			});
+		},
+
+		gc: async () => {
+			await handleTeamGcCommand({ ctx, rest });
 		},
 
 		prune: async () => {
