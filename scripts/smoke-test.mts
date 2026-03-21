@@ -774,6 +774,33 @@ console.log("\n11. /team done (end-of-run)");
 
 	const offlineAlice = cfgAfter?.members.find((m) => m.name === "alice");
 	assert(offlineAlice?.meta?.["stoppedReason"] === "team-done", "/team done: alice has stoppedReason=team-done");
+
+	// Test force-done with in-progress tasks (simulates --force path)
+	const forceDir = path.join(tmpRoot, "force-done-test");
+	const forceTeamId = "force-done-team";
+	const forceTeamDir = path.join(forceDir, forceTeamId);
+	const forceTlId = forceTeamId;
+
+	await ensureTeamConfig(forceTeamDir, { teamId: forceTeamId, taskListId: forceTlId, leadName: "team-lead", style: "normal" });
+	await upsertMember(forceTeamDir, { name: "carol", role: "worker", status: "online" });
+
+	const ft1 = await createTask(forceTeamDir, forceTlId, { subject: "Ongoing work", description: "", owner: "carol" });
+	await startAssignedTask(forceTeamDir, forceTlId, ft1.id, "carol");
+
+	const forceTasks = await listTasks(forceTeamDir, forceTlId);
+	assertEq(forceTasks[0]?.status, "in_progress", "/team done --force precondition: task in_progress");
+
+	// Simulate force-done: unassign in-progress tasks
+	await unassignTasksForAgent(forceTeamDir, forceTlId, "carol", "team done");
+	await setMemberStatus(forceTeamDir, "carol", "offline", { meta: { stoppedReason: "team-done" } });
+
+	const forceTasksAfter = await listTasks(forceTeamDir, forceTlId);
+	assertEq(forceTasksAfter[0]?.status, "pending", "/team done --force: in-progress task reset to pending");
+	assertEq(forceTasksAfter[0]?.owner, undefined, "/team done --force: in-progress task unassigned");
+
+	const forceCfgAfter = await loadTeamConfig(forceTeamDir);
+	const forceCarol = forceCfgAfter?.members.find((m) => m.name === "carol");
+	assertEq(forceCarol?.status, "offline", "/team done --force: worker offline");
 }
 
 // ── 12. isTeamDone (pure function unit tests) ───────────────────────
