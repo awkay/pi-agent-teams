@@ -16,10 +16,12 @@ import {
 	getVisibleWorkerNames,
 	isTeamDone,
 	padRight,
+	renderPolicySummary,
 	resolveStatus,
 	shortModelLabel,
 	toolActivity,
 } from "./teams-ui-shared.js";
+import type { LeaderModelInfo } from "./teams-ui-shared.js";
 
 export interface WidgetDeps {
 	getTeammates(): Map<string, TeammateRpc>;
@@ -30,6 +32,7 @@ export interface WidgetDeps {
 	isDelegateMode(): boolean;
 	getActiveTeamId(): string | null;
 	getSessionTeamId(): string | null;
+	getLeaderModel(): LeaderModelInfo | null;
 }
 
 export type WidgetFactory = (tui: TUI, theme: Theme) => Component;
@@ -105,6 +108,15 @@ export function createTeamsWidget(deps: WidgetDeps): WidgetFactory {
 						truncateToWidth(theme.fg("warning", ` quality gate failures: ${qgFailures} · /team task list`), width),
 					);
 				}
+
+				// ── Policy summary ──
+				const policyLines = renderPolicySummary({
+					teamConfig,
+					leaderModel: deps.getLeaderModel(),
+					theme,
+					width,
+				});
+				for (const pl of policyLines) lines.push(pl);
 
 				// ── Build row data ──
 				const cfgMembers = teamConfig?.members ?? [];

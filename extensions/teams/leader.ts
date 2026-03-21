@@ -412,6 +412,11 @@ export function runLeader(pi: ExtensionAPI): void {
 		isDelegateMode: () => delegateMode,
 		getActiveTeamId: () => currentTeamId,
 		getSessionTeamId: () => currentCtx?.sessionManager.getSessionId() ?? null,
+		getLeaderModel: () => {
+			const model = currentCtx?.model;
+			if (!model) return null;
+			return { provider: model.provider, modelId: model.id };
+		},
 	});
 
 	// Auto-done detection: notify once when all tasks complete and teammates idle.
@@ -924,6 +929,11 @@ export function runLeader(pi: ExtensionAPI): void {
 			},
 			getSessionTeamId() {
 				return ctx.sessionManager.getSessionId();
+			},
+			getLeaderModel() {
+				const model = currentCtx?.model;
+				if (!model) return null;
+				return { provider: model.provider, modelId: model.id };
 			},
 			suppressWidget() {
 				hideWidget();
