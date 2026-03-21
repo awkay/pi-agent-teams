@@ -146,13 +146,9 @@ Spawning with `plan` restricts the teammate to read-only tools. After producing 
 /team shutdown <name>          # graceful shutdown (teammate can reject if busy)
 /team prune [--all]            # hide stale manual teammates (mark offline in config)
 /team kill <name>              # force-terminate one RPC teammate
-<<<<<<< Updated upstream
+/team done [--force]           # end run: stop teammates + hide widget
 /team cleanup [--force]        # delete team directory, worktrees, and branches
 /team gc [--dry-run] [--force] [--max-age-hours=N]  # garbage-collect stale team dirs
-=======
-/team done [--force]           # end run: stop teammates + hide widget
-/team cleanup [--force]        # delete team directory after all teammates stopped
->>>>>>> Stashed changes
 ```
 
 When all tasks complete and teammates are idle, the widget shows "All tasks done." with a `/team done` hint.
