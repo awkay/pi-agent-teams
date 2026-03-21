@@ -136,7 +136,8 @@ Spawning with `plan` restricts the teammate to read-only tools. After producing 
 
 ```
 /team panel                    # interactive overlay with teammate details
-/team list                     # show teammates and their state
+/team list                     # rich status: activity, time-in-state, model, stall detection
+/team status <name>            # detailed status for one worker
 /team attach list              # discover existing teams under <teamsRoot>
 /team attach <teamId> [--claim] # attach this session to an existing team workspace (force takeover with --claim)
 /team detach                   # return to this session's own team workspace

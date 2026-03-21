@@ -10,14 +10,20 @@ import { formatMemberDisplayName, getTeamsStrings } from "./teams-style.js";
 import {
 	STATUS_COLOR,
 	STATUS_ICON,
+	STALLED_COLOR,
+	formatDuration,
 	formatTokens,
 	getMemberModel,
 	getMemberThinking,
 	getVisibleWorkerNames,
+	isStalled,
+	isStallWarning,
 	padRight,
 	renderPolicySummary,
 	resolveStatus,
+	resolveStatusIconColor,
 	shortModelLabel,
+	stateElapsedMs,
 	toolActivity,
 } from "./teams-ui-shared.js";
 import type { LeaderModelInfo } from "./teams-ui-shared.js";
@@ -45,6 +51,8 @@ interface WidgetRow {
 	completed: number;
 	tokensStr: string; // "—" for chairman
 	activityText: string;
+	durationStr: string; // time in current state
+	stalled: boolean; // stall detection flag
 	/** Short model label (e.g. "claude-sonnet-4-5") or null. */
 	modelLabel: string | null;
 	/** Thinking level (e.g. "high") or null. */
@@ -137,6 +145,8 @@ export function createTeamsWidget(deps: WidgetDeps): WidgetFactory {
 						completed: leadTasks.filter((t) => t.status === "completed").length,
 						tokensStr: "\u2014",
 						activityText: "",
+						durationStr: "",
+						stalled: false,
 						modelLabel: null,
 						thinkingLabel: null,
 						activeTaskSubject: null,
@@ -161,16 +171,20 @@ export function createTeamsWidget(deps: WidgetDeps): WidgetFactory {
 						const activeTask = owned.find((t) => t.status === "in_progress");
 						const memberModel = getMemberModel(cfg);
 						const memberThinking = getMemberThinking(cfg);
+						const stalled = rpc ? isStalled(tracker, name) : false;
+						const elapsed = stateElapsedMs(activity);
 
 						rows.push({
 							icon: STATUS_ICON[statusKey],
-							iconColor: STATUS_COLOR[statusKey],
+							iconColor: resolveStatusIconColor(stalled, statusKey),
 							displayName: formatMemberDisplayName(style, name),
 							statusKey,
 							pending: owned.filter((t) => t.status === "pending").length,
 							completed: owned.filter((t) => t.status === "completed").length,
 							tokensStr: formatTokens(activity.totalTokens),
 							activityText: toolActivity(activity.currentToolName),
+							durationStr: formatDuration(elapsed),
+							stalled,
 							modelLabel: memberModel ? shortModelLabel(memberModel) : null,
 							thinkingLabel: memberThinking,
 							activeTaskSubject: activeTask ? `#${String(activeTask.id)} ${activeTask.subject}` : null,
@@ -193,7 +207,11 @@ export function createTeamsWidget(deps: WidgetDeps): WidgetFactory {
 					for (const r of rows) {
 						const icon = theme.fg(r.iconColor, r.icon);
 						const styledName = theme.bold(r.displayName);
-						const statusLabel = theme.fg(STATUS_COLOR[r.statusKey], padRight(r.statusKey, 9));
+						const stallWarning = isStallWarning(r.stalled, r.statusKey);
+						const statusText = stallWarning ? "stalled" : r.statusKey;
+						const statusColor = stallWarning ? STALLED_COLOR : STATUS_COLOR[r.statusKey];
+						const durationSuffix = r.durationStr ? ` ${r.durationStr}` : "";
+						const statusLabel = theme.fg(statusColor, padRight(`${statusText}${durationSuffix}`, 9 + durationSuffix.length));
 						const pNum = String(r.pending).padStart(pW);
 						const cNum = String(r.completed).padStart(cW);
 						const tokStr = r.tokensStr.padStart(tokW);

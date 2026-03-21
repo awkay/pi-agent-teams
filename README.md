@@ -190,7 +190,8 @@ All management commands live under `/team`.
 | Command | Description |
 | --- | --- |
 | `/team spawn <name> [fresh\|branch] [shared\|worktree] [plan] [--model <provider>/<modelId>] [--thinking <level>]` | Start a teammate |
-| `/team list` | List teammates and their status |
+| `/team list` | Rich status overview: activity, time-in-state, model, stall detection |
+| `/team status <name>` | Detailed status for one worker: activity, tokens, turns, last message |
 | `/team panel` | Interactive widget panel (same as `/tw`) |
 | `/team attach list` | Discover existing team workspaces under `<teamsRoot>` |
 | `/team attach <teamId> [--claim]` | Attach this session to an existing team workspace (`--claim` force-takes over an active claim) |
@@ -271,6 +272,7 @@ tool actions, but are continuously visible — no extra tool calls needed.
 | `PI_TEAMS_HOOKS_MAX_REOPENS_PER_TASK` | Reopen cap per task when failure action includes `reopen` (`0` disables auto-reopen) | `3` |
 | `PI_TEAMS_HOOKS_FOLLOWUP_OWNER` | Follow-up owner policy: `member`, `lead`, `none` | `member` |
 | `PI_TEAMS_HOOKS_CREATE_TASK_ON_FAILURE` | Legacy shortcut for `PI_TEAMS_HOOKS_FAILURE_ACTION=followup` | `0` (off) |
+| `PI_TEAMS_STALL_THRESHOLD_MS` | Stall detection threshold — flag workers with no events for this long | `300000` (5 min) |
 
 ## Storage layout
 

@@ -7,16 +7,22 @@ import type { TeamConfig, TeamMember } from "./team-config.js";
 import type { TeamsStyle } from "./teams-style.js";
 import { formatMemberDisplayName, getTeamsStrings } from "./teams-style.js";
 import {
+	STALLED_COLOR,
 	STATUS_COLOR,
 	STATUS_ICON,
+	formatDuration,
 	formatTokens,
 	getMemberModel,
 	getMemberThinking,
 	getVisibleWorkerNames,
+	isStalled,
+	isStallWarning,
 	padRight,
 	renderPolicySummary,
 	resolveStatus,
+	resolveStatusIconColor,
 	shortModelLabel,
+	stateElapsedMs,
 	toolActivity,
 	toolVerb,
 } from "./teams-ui-shared.js";
@@ -65,6 +71,8 @@ interface Row {
 	tokensStr: string;
 	activityText: string;
 	isChairman: boolean;
+	durationStr: string;
+	stalled: boolean;
 	/** Short model label (e.g. "claude-sonnet-4-5") or null. */
 	modelLabel: string | null;
 	/** Thinking level (e.g. "high") or null. */
@@ -311,6 +319,8 @@ export async function openInteractiveWidget(ctx: ExtensionCommandContext, deps: 
 							activityText: "",
 							isChairman: true,
 							name: leadName,
+							durationStr: "",
+							stalled: false,
 							modelLabel: null,
 							thinkingLabel: null,
 							activeTaskSubject: null,
@@ -328,10 +338,12 @@ export async function openInteractiveWidget(ctx: ExtensionCommandContext, deps: 
 						const activeTask = owned.find((t) => t.status === "in_progress");
 						const memberModel = getMemberModel(cfg);
 						const memberThinking = getMemberThinking(cfg);
+						const stalled = rpc ? isStalled(tracker, name) : false;
+						const elapsed = stateElapsedMs(activity);
 
 						rows.push({
 							icon: STATUS_ICON[statusKey],
-							iconColor: STATUS_COLOR[statusKey],
+							iconColor: resolveStatusIconColor(stalled, statusKey),
 							displayName: formatMemberDisplayName(style, name),
 							statusKey,
 							pending: owned.filter((t) => t.status === "pending").length,
@@ -340,6 +352,8 @@ export async function openInteractiveWidget(ctx: ExtensionCommandContext, deps: 
 							activityText: toolActivity(activity.currentToolName),
 							isChairman: false,
 							name,
+							durationStr: formatDuration(elapsed),
+							stalled,
 							modelLabel: memberModel ? shortModelLabel(memberModel) : null,
 							thinkingLabel: memberThinking,
 							activeTaskSubject: activeTask ? `#${String(activeTask.id)} ${activeTask.subject}` : null,
@@ -415,7 +429,11 @@ export async function openInteractiveWidget(ctx: ExtensionCommandContext, deps: 
 							const styledName = isSelected
 								? theme.bold(theme.fg("accent", r.displayName))
 								: theme.bold(r.displayName);
-							const statusLabel = theme.fg(STATUS_COLOR[r.statusKey], padRight(r.statusKey, 9));
+							const stallWarning = isStallWarning(r.stalled, r.statusKey);
+							const statusText = stallWarning ? "stalled" : r.statusKey;
+							const statusColor = stallWarning ? STALLED_COLOR : STATUS_COLOR[r.statusKey];
+							const durationSuffix = r.durationStr ? ` ${r.durationStr}` : "";
+							const statusLabel = theme.fg(statusColor, padRight(`${statusText}${durationSuffix}`, 9 + durationSuffix.length));
 							const pNum = String(r.pending).padStart(pW);
 							const cNum = String(r.completed).padStart(cW);
 							const tokStr = r.tokensStr.padStart(tokW);
@@ -523,14 +541,19 @@ export async function openInteractiveWidget(ctx: ExtensionCommandContext, deps: 
 						(t) => t.owner === sessionName && t.status === "in_progress",
 					);
 					const transcript = deps.getTranscript(sessionName);
+					const stalled = rpc ? isStalled(deps.getTracker(), sessionName) : false;
+					const elapsed = stateElapsedMs(activity);
 
 					const lines: string[] = [];
 					const sep = theme.fg("dim", "\u2500".repeat(Math.max(0, width - 2)));
 
 					// Header
-					const icon = theme.fg(STATUS_COLOR[statusKey], STATUS_ICON[statusKey]);
+					const stallWarning = isStallWarning(stalled, statusKey);
+					const statusText = stallWarning ? "stalled" : statusKey;
+					const statusColor = stallWarning ? STALLED_COLOR : STATUS_COLOR[statusKey];
+					const icon = theme.fg(resolveStatusIconColor(stalled, statusKey), STATUS_ICON[statusKey]);
 					const nameStr = theme.bold(theme.fg("accent", formatMemberDisplayName(style, sessionName)));
-					const status = theme.fg(STATUS_COLOR[statusKey], statusKey);
+					const status = theme.fg(statusColor, `${statusText} ${formatDuration(elapsed)}`);
 					const tokens = theme.fg("dim", `${formatTokens(activity.totalTokens)} tokens`);
 					const taskLabel = activeTask
 						? ` ${theme.fg("muted", "\u00b7")} ${theme.fg("dim", `#${String(activeTask.id)} ${activeTask.subject}`)}`

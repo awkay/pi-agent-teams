@@ -3,6 +3,7 @@ import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { TeamConfig, TeamMember } from "./team-config.js";
 import type { TeamTask } from "./task-store.js";
 import type { TeammateRpc, TeammateStatus } from "./teammate-rpc.js";
+import type { ActivityTracker, TeammateActivity } from "./activity-tracker.js";
 import {
 	areTeamsHooksEnabled,
 	getTeamsHookFailureAction,
@@ -200,4 +201,65 @@ export function renderPolicySummary(opts: {
 	lines.push(truncateToWidth(modelLine, width));
 
 	return lines;
+}
+
+/** Color used for stalled workers across all UI surfaces. */
+export const STALLED_COLOR: ThemeColor = "error";
+
+/** Whether a worker should display a stall warning (stalled + not already stopped/error). */
+export function isStallWarning(stalled: boolean, statusKey: TeammateStatus): boolean {
+	return stalled && statusKey !== "stopped" && statusKey !== "error";
+}
+
+/** Resolve the display color for a worker's status icon, accounting for stall state. */
+export function resolveStatusIconColor(stalled: boolean, statusKey: TeammateStatus): ThemeColor {
+	return isStallWarning(stalled, statusKey) ? STALLED_COLOR : STATUS_COLOR[statusKey];
+}
+
+// ── Duration & stall detection ──
+
+/** Default stall threshold: 5 minutes (configurable via PI_TEAMS_STALL_THRESHOLD_MS). */
+export function getStallThresholdMs(): number {
+	const envVal = process.env.PI_TEAMS_STALL_THRESHOLD_MS;
+	if (envVal) {
+		const parsed = Number.parseInt(envVal, 10);
+		if (Number.isFinite(parsed) && parsed > 0) return parsed;
+	}
+	return 5 * 60 * 1000;
+}
+
+/** Format a duration in ms to a compact human-readable string. */
+export function formatDuration(ms: number): string {
+	if (ms < 0) return "0s";
+	const totalSec = Math.floor(ms / 1000);
+	if (totalSec < 60) return `${totalSec}s`;
+	const totalMin = Math.floor(totalSec / 60);
+	const sec = totalSec % 60;
+	if (totalMin < 60) return sec > 0 ? `${totalMin}m ${sec}s` : `${totalMin}m`;
+	const hours = Math.floor(totalMin / 60);
+	const min = totalMin % 60;
+	return min > 0 ? `${hours}h ${min}m` : `${hours}h`;
+}
+
+/** Compute the elapsed time a worker has been in its current state. */
+export function stateElapsedMs(activity: TeammateActivity): number {
+	return Math.max(0, Date.now() - activity.stateChangedAt);
+}
+
+/**
+ * Check if a worker looks stalled: no events for longer than threshold,
+ * and not in a known idle/stopped state.
+ */
+export function isStalled(tracker: ActivityTracker, name: string): boolean {
+	const threshold = getStallThresholdMs();
+	return tracker.stalledMs(name, threshold) > 0;
+}
+
+/** Summarize the last assistant message (first N chars). */
+export function summarizeLastAssistant(rpc: TeammateRpc | undefined, maxLen: number): string | null {
+	if (!rpc) return null;
+	const text = rpc.lastAssistantText.trim();
+	if (!text) return null;
+	const oneLine = text.replace(/\s+/g, " ");
+	return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen - 1)}…` : oneLine;
 }

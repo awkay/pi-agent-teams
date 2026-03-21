@@ -152,6 +152,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null;
 }
 
+export type ActivityState = "streaming" | "tool" | "idle";
+
 export interface TeammateActivity {
 	toolUseCount: number;
 	currentToolName: string | null;
@@ -159,11 +161,18 @@ export interface TeammateActivity {
 	turnCount: number;
 	totalTokens: number;
 	recentEvents: Array<{ type: TrackedEventType; toolName?: string; timestamp: number }>;
+	/** Semantic state: streaming text, running a tool, or idle between turns. */
+	currentState: ActivityState;
+	/** When the current state started (ms since epoch). */
+	stateChangedAt: number;
+	/** When the last event of any kind was received (ms since epoch). */
+	lastEventAt: number;
 }
 
 const MAX_RECENT = 10;
 
 function emptyActivity(): TeammateActivity {
+	const now = Date.now();
 	return {
 		toolUseCount: 0,
 		currentToolName: null,
@@ -171,6 +180,9 @@ function emptyActivity(): TeammateActivity {
 		turnCount: 0,
 		totalTokens: 0,
 		recentEvents: [],
+		currentState: "idle",
+		stateChangedAt: now,
+		lastEventAt: now,
 	};
 }
 
@@ -180,9 +192,11 @@ export class ActivityTracker {
 	handleEvent(name: string, ev: AgentEvent): void {
 		const a = this.getOrCreate(name);
 		const now = Date.now();
+		a.lastEventAt = now;
 
 		if (ev.type === "tool_execution_start") {
 			a.currentToolName = ev.toolName;
+			this.transitionState(a, "tool", now);
 			a.recentEvents.push({ type: ev.type, toolName: ev.toolName, timestamp: now });
 			if (a.recentEvents.length > MAX_RECENT) a.recentEvents.shift();
 			return;
@@ -193,6 +207,7 @@ export class ActivityTracker {
 			a.toolUseCount++;
 			a.lastToolName = toolName;
 			a.currentToolName = null;
+			this.transitionState(a, "streaming", now);
 			a.recentEvents.push({ type: ev.type, toolName, timestamp: now });
 			if (a.recentEvents.length > MAX_RECENT) a.recentEvents.shift();
 			return;
@@ -200,6 +215,7 @@ export class ActivityTracker {
 
 		if (ev.type === "agent_end") {
 			a.turnCount++;
+			this.transitionState(a, "idle", now);
 			a.recentEvents.push({ type: ev.type, timestamp: now });
 			if (a.recentEvents.length > MAX_RECENT) a.recentEvents.shift();
 			return;
@@ -212,6 +228,29 @@ export class ActivityTracker {
 			if (!isRecord(usage)) return;
 			const totalTokens = usage.totalTokens;
 			if (typeof totalTokens === "number") a.totalTokens += totalTokens;
+		}
+
+		// agent_start → streaming
+		if (ev.type === "agent_start") {
+			this.transitionState(a, "streaming", now);
+		}
+	}
+
+	/**
+	 * Check whether a worker appears stalled (no events for longer than threshold).
+	 * Returns the number of ms since the last event, or 0 if not stalled.
+	 */
+	stalledMs(name: string, thresholdMs: number): number {
+		const a = this.data.get(name);
+		if (!a) return 0;
+		const elapsed = Date.now() - a.lastEventAt;
+		return elapsed >= thresholdMs ? elapsed : 0;
+	}
+
+	private transitionState(a: TeammateActivity, next: ActivityState, now: number): void {
+		if (a.currentState !== next) {
+			a.currentState = next;
+			a.stateChangedAt = now;
 		}
 	}
 

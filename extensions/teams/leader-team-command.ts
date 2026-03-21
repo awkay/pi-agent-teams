@@ -4,7 +4,10 @@ import {
 	handleTeamEnvCommand,
 	handleTeamIdCommand,
 	handleTeamListCommand,
+	handleTeamStatusCommand,
 } from "./leader-info-commands.js";
+import type { ActivityTracker } from "./activity-tracker.js";
+import { sanitizeName } from "./names.js";
 import { handleTeamAttachCommand, handleTeamDetachCommand } from "./leader-attach-commands.js";
 import {
 	handleTeamCleanupCommand,
@@ -34,6 +37,8 @@ import type { TeamsStyle } from "./teams-style.js";
 const TEAM_HELP_TEXT = [
 	"Usage:",
 	"  /team id",
+	"  /team list              # rich overview: status, activity, time-in-state, model, stall detection",
+	"  /team status <name>     # detailed status for one worker",
 	"  /team env <name>",
 	"  /team attach list",
 	"  /team attach <teamId> [--claim]",
@@ -79,6 +84,7 @@ export async function handleTeamCommand(opts: {
 	ctx: ExtensionCommandContext;
 	teammates: Map<string, TeammateRpc>;
 	getTeamConfig: () => TeamConfig | null;
+	getTracker: () => ActivityTracker;
 	getTasks: () => TeamTask[];
 	refreshTasks: () => Promise<void>;
 	renderWidget: () => void;
@@ -103,6 +109,7 @@ export async function handleTeamCommand(opts: {
 		ctx,
 		teammates,
 		getTeamConfig,
+		getTracker,
 		getTasks,
 		refreshTasks,
 		renderWidget,
@@ -142,9 +149,28 @@ export async function handleTeamCommand(opts: {
 				ctx,
 				teammates,
 				getTeamConfig,
+				getTracker,
+				getTasks,
 				style,
 				refreshTasks,
 				renderWidget,
+			});
+		},
+
+		status: async () => {
+			const nameRaw = rest[0];
+			if (!nameRaw) {
+				ctx.ui.notify("Usage: /team status <name>", "error");
+				return;
+			}
+			await handleTeamStatusCommand({
+				ctx,
+				name: sanitizeName(nameRaw),
+				teammates,
+				getTeamConfig,
+				getTracker,
+				getTasks,
+				style,
 			});
 		},
 

@@ -940,6 +940,7 @@ export function runLeader(pi: ExtensionAPI): void {
 				ctx,
 				teammates,
 				getTeamConfig: () => teamConfig,
+				getTracker: () => tracker,
 				getTasks: () => tasks,
 				refreshTasks,
 				renderWidget,
