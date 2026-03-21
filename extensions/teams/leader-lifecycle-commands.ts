@@ -607,7 +607,7 @@ export async function handleTeamDoneCommand(opts: {
 		} catch {
 			// ignore
 		}
-		void setMemberStatus(teamDir, m.name, "offline", {
+		await setMemberStatus(teamDir, m.name, "offline", {
 			meta: { stoppedReason: "team-done", stoppedAt: ts },
 		});
 	}
