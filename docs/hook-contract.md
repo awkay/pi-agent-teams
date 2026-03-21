@@ -37,12 +37,16 @@ Hooks receive context through two channels:
   },
   "member": "<name>" | null,          // teammate that triggered the event
   "timestamp": "<ISO 8601>" | null,
-  "task": {                            // null for "idle" events
+  "task": {                            // null for "idle" events; may also be null
+                                       // for task_completed/task_failed if the task
+                                       // was cleared before the leader processed it
     "id": "3",
     "subject": "<text>",               // truncated to 1,000 chars
     "description": "<text>",           // truncated to 8,000 chars
     "owner": "<name>" | null,
     "status": "completed",             // "pending" | "in_progress" | "completed"
+                                       // NOTE: for task_failed events the status is
+                                       // typically "pending" (reset before hook runs)
     "blockedBy": ["1", "2"],           // max 200 entries
     "blocks": ["5"],                   // max 200 entries
     "metadata": {},                    // freeform key-value
@@ -109,12 +113,25 @@ The following changes **require incrementing** the contract version:
 
 ### Hook author guidelines
 
-Write hooks that are resilient to additive changes:
+Write hooks that are resilient to additive changes and race conditions:
 
 ```js
 // ✅ Good: parse only the fields you need, ignore the rest
 const ctx = JSON.parse(process.env.PI_TEAMS_HOOK_CONTEXT_JSON);
 const taskId = ctx.task?.id;
+
+// ✅ Good: always guard task access — task can be null even for
+// task_completed/task_failed events (race: task cleared before leader reads it)
+if (!ctx.task) {
+  console.log("Task already cleared, skipping quality gate");
+  process.exit(0);
+}
+
+// ✅ Good: don't assume task.status matches the event name —
+// for task_failed events the status is typically "pending" (reset before hook runs)
+if (ctx.event === "task_failed") {
+  console.log(`Task #${ctx.task.id} failed (current status: ${ctx.task.status})`);
+}
 
 // ✅ Good: check the version for breaking changes
 const version = parseInt(process.env.PI_TEAMS_HOOK_CONTEXT_VERSION, 10);
@@ -126,6 +143,9 @@ if (version > 1) {
 // ❌ Bad: assume exact shape, fail on new fields
 const { version, event, team, member, timestamp, task } = ctx;
 assert(Object.keys(ctx).length === 5); // breaks when fields are added
+
+// ❌ Bad: unconditionally access task fields
+const subject = ctx.task.subject; // crashes when task is null
 ```
 
 ## Hook log format

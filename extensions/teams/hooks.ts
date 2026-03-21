@@ -23,7 +23,18 @@ export type TeamsHookInvocation = {
 	completedTask?: TeamTask | null;
 };
 
-/** Structured context payload passed to hooks via PI_TEAMS_HOOK_CONTEXT_JSON. */
+/**
+ * Structured context payload passed to hooks via PI_TEAMS_HOOK_CONTEXT_JSON.
+ *
+ * `task` is null for "idle" events and may also be null for task_completed /
+ * task_failed events when the task was cleared before the leader processed the
+ * worker's idle notification (race condition). Hook authors must guard access.
+ *
+ * For task_failed events, `task.status` is typically "pending" — the worker
+ * resets the task status before emitting the idle notification.
+ *
+ * See docs/hook-contract.md for the full schema and compatibility policy.
+ */
 export interface HookContextPayload {
 	version: typeof HOOK_CONTRACT_VERSION;
 	event: TeamsHookEvent;
