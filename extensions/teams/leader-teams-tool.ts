@@ -146,6 +146,7 @@ const TeamsToolParamsSchema = Type.Object({
 	),
 	hookFollowupOwner: Type.Optional(TeamsHookFollowupOwnerSchema),
 	hooksPolicyReset: Type.Optional(Type.Boolean({ description: "For hooks_policy_set, clear team-level overrides before applying fields." })),
+	urgent: Type.Optional(Type.Boolean({ description: "For message_dm/message_broadcast: interrupt the recipient's active turn via steering instead of waiting for idle. Use sparingly." })),
 });
 
 type TeamsToolParamsType = Static<typeof TeamsToolParamsSchema>;
@@ -159,9 +160,10 @@ export function registerTeamsTool(opts: {
 	refreshTasks: () => Promise<void>;
 	renderWidget: () => void;
 	hideWidget: () => void;
+	stopAllTeammates: (reason: string) => Promise<void>;
 	pendingPlanApprovals: Map<string, { requestId: string; name: string; taskId?: string }>;
 }): void {
-	const { pi, teammates, spawnTeammate, getTeamId, getTaskListId, refreshTasks, renderWidget, hideWidget, pendingPlanApprovals } = opts;
+	const { pi, teammates, spawnTeammate, getTeamId, getTaskListId, refreshTasks, renderWidget, hideWidget, stopAllTeammates, pendingPlanApprovals } = opts;
 
 	pi.registerTool({
 		name: "teams",
@@ -386,14 +388,17 @@ export function registerTeamsTool(opts: {
 					};
 				}
 				const name = sanitizeName(nameRaw);
+				const isUrgent = params.urgent === true;
 				await writeToMailbox(teamDir, TEAM_MAILBOX_NS, name, {
 					from: cfg.leadName,
 					text: message,
 					timestamp: new Date().toISOString(),
+					...(isUrgent ? { urgent: true } : {}),
 				});
+				const verb = isUrgent ? "Urgent DM" : "DM";
 				return {
-					content: [{ type: "text", text: `DM queued for ${formatMemberDisplayName(style, name)}` }],
-					details: { action, teamId, name, mailboxNamespace: TEAM_MAILBOX_NS },
+					content: [{ type: "text", text: `${verb} queued for ${formatMemberDisplayName(style, name)}` }],
+					details: { action, teamId, name, urgent: isUrgent, mailboxNamespace: TEAM_MAILBOX_NS },
 				};
 			}
 
@@ -421,6 +426,7 @@ export function registerTeamsTool(opts: {
 						details: { action, recipients: [] },
 					};
 				}
+				const isUrgent = params.urgent === true;
 				const ts = new Date().toISOString();
 				await Promise.all(
 					names.map((name) =>
@@ -428,12 +434,14 @@ export function registerTeamsTool(opts: {
 							from: cfg.leadName,
 							text: message,
 							timestamp: ts,
+							...(isUrgent ? { urgent: true } : {}),
 						}),
 					),
 				);
+				const verb = isUrgent ? "Urgent broadcast" : "Broadcast";
 				return {
-					content: [{ type: "text", text: `Broadcast queued for ${names.length} ${strings.memberTitle.toLowerCase()}(s): ${names.map((n) => formatMemberDisplayName(style, n)).join(", ")}` }],
-					details: { action, teamId, recipients: names, mailboxNamespace: TEAM_MAILBOX_NS },
+					content: [{ type: "text", text: `${verb} queued for ${names.length} ${strings.memberTitle.toLowerCase()}(s): ${names.map((n) => formatMemberDisplayName(style, n)).join(", ")}` }],
+					details: { action, teamId, recipients: names, urgent: isUrgent, mailboxNamespace: TEAM_MAILBOX_NS },
 				};
 			}
 
@@ -658,15 +666,9 @@ export function registerTeamsTool(opts: {
 					};
 				}
 
-				// Stop all RPC teammates
-				for (const [name, t] of teammates.entries()) {
-					try { await t.stop(); } catch { /* ignore */ }
-					await unassignTasksForAgent(teamDir, effectiveTlId, name, "team done");
-					await setMemberStatus(teamDir, name, "offline", {
-						meta: { stoppedReason: "team-done", stoppedAt: new Date().toISOString() },
-					});
-				}
-				teammates.clear();
+				// Stop all RPC teammates (reuses leader's stopAllTeammates for proper
+				// event unsub + tracker/transcript cleanup — avoids stale state on reuse).
+				await stopAllTeammates("team done");
 
 				// Mark config workers offline + send shutdown mailbox messages
 				const cfgWorkers = cfg.members.filter((m) => m.role === "worker" && m.status === "online");

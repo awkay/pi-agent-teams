@@ -10,7 +10,7 @@ Core agent-teams primitives, matching Claude's design:
 
 - **Shared task list** — file-per-task on disk with three states (pending / in-progress / completed) and dependency tracking so blocked tasks stay blocked until their prerequisites finish.
 - **Auto-claim** — idle teammates automatically pick up the next unassigned, unblocked task. No manual dispatching required (disable with `PI_TEAMS_DEFAULT_AUTO_CLAIM=0`).
-- **Direct messages and broadcast** — send a message to one teammate or all of them at once, via file-based mailboxes.
+- **Direct messages and broadcast** — send a message to one teammate or all of them at once, via file-based mailboxes. Urgent messages can interrupt active turns via steering.
 - **Graceful lifecycle** — spawn, stop, shutdown (with handshake), or kill teammates. The leader tracks who's online, idle, or streaming.
 - **LLM-callable teams tool** — the model can spawn teammates, delegate tasks, mutate task assignment/status/dependencies, message teammates, and run lifecycle actions in tool calls (no slash commands needed).
 - **Team done + cleanup** — `/team done` ends a run (stops teammates, hides the widget, notifies with a summary); the widget auto-detects when all tasks are complete and shows a hint. `/team cleanup` tears down artifacts afterward.
@@ -146,8 +146,8 @@ Or let the model drive it with the delegate tool:
 | `task_dep_add` | `taskId`, `depId` | Add dependency edge (`taskId` depends on `depId`). |
 | `task_dep_rm` | `taskId`, `depId` | Remove dependency edge. |
 | `task_dep_ls` | `taskId` | Inspect dependency/block graph for one task. |
-| `message_dm` | `name`, `message` | Send mailbox DM to one teammate. |
-| `message_broadcast` | `message` | Send mailbox message to all discovered workers. |
+| `message_dm` | `name`, `message` | Send mailbox DM to one teammate. Set `urgent=true` to interrupt their active turn. |
+| `message_broadcast` | `message` | Send mailbox message to all discovered workers. Set `urgent=true` to interrupt active turns. |
 | `message_steer` | `name`, `message` | Send steer instruction to a running RPC teammate. |
 | `member_spawn` | `name` | Spawn one teammate (supports context/workspace/model/thinking/plan options). |
 | `member_shutdown` | `name` or `all=true` | Request graceful shutdown via mailbox handshake. |
@@ -167,6 +167,7 @@ Example calls:
 { "action": "task_assign", "taskId": "12", "assignee": "alice" }
 { "action": "task_dep_add", "taskId": "12", "depId": "7" }
 { "action": "message_broadcast", "message": "Sync: finishing this milestone" }
+{ "action": "message_dm", "name": "alice", "message": "Stop using lib X, use Y instead", "urgent": true }
 { "action": "member_kill", "name": "alice" }
 { "action": "plan_approve", "name": "alice" }
 { "action": "hooks_policy_get" }
@@ -204,8 +205,8 @@ All management commands live under `/team`.
 | `/team style <name>` | Set style (built-in or custom) |
 | `/team send <name> <msg>` | Send a prompt over RPC |
 | `/team steer <name> <msg>` | Redirect an in-flight run |
-| `/team dm <name> <msg>` | Send a mailbox message |
-| `/team broadcast <msg>` | Message all teammates |
+| `/team dm <name> [--urgent] <msg>` | Send a mailbox message (`--urgent` interrupts active turns) |
+| `/team broadcast [--urgent] <msg>` | Message all teammates (`--urgent` interrupts active turns) |
 | `/team stop <name> [reason]` | Abort current work (resets task to pending) |
 | `/team shutdown <name> [reason]` | Graceful shutdown (handshake) |
 | `/team shutdown` | Stop all teammates (RPC + best-effort manual) (leader session remains active) |

@@ -668,6 +668,9 @@ export function runLeader(pi: ExtensionAPI): void {
 		// use `/team task use <taskListId>` after switching.
 		taskListId = currentTeamId;
 		lastAttachClaimHeartbeatMs = 0;
+		// Clear any /team done suppression from a previous session.
+		widgetSuppressed = false;
+		autoDoneNotified = false;
 
 		// Claude-style: a persisted team config file.
 		await ensureTeamConfig(getTeamDir(currentTeamId), {
@@ -720,6 +723,9 @@ export function runLeader(pi: ExtensionAPI): void {
 		// use `/team task use <taskListId>` after switching.
 		taskListId = currentTeamId;
 		lastAttachClaimHeartbeatMs = 0;
+		// Clear any /team done suppression — new session context.
+		widgetSuppressed = false;
+		autoDoneNotified = false;
 
 		await ensureTeamConfig(getTeamDir(currentTeamId), {
 			teamId: currentTeamId,
@@ -774,6 +780,10 @@ export function runLeader(pi: ExtensionAPI): void {
 		refreshTasks,
 		renderWidget,
 		hideWidget,
+		stopAllTeammates: async (reason: string) => {
+			if (!currentCtx) return;
+			await stopAllTeammates(currentCtx, reason);
+		},
 		pendingPlanApprovals,
 	});
 
@@ -932,6 +942,7 @@ export function runLeader(pi: ExtensionAPI): void {
 				refreshTasks,
 				renderWidget,
 				hideWidget,
+				restoreWidget,
 				getTaskListId: () => taskListId,
 				setTaskListId: (id) => {
 					taskListId = id;

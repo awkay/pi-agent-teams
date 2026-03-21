@@ -30,6 +30,7 @@ export async function handleTeamAttachCommand(opts: {
 	setTaskListId: (id: string) => void;
 	refreshTasks: () => Promise<void>;
 	renderWidget: () => void;
+	restoreWidget: () => void;
 }): Promise<void> {
 	const {
 		ctx,
@@ -42,6 +43,7 @@ export async function handleTeamAttachCommand(opts: {
 		setTaskListId,
 		refreshTasks,
 		renderWidget,
+		restoreWidget,
 	} = opts;
 
 	const tokens = rest.map((t) => t.trim()).filter((t) => t.length > 0);
@@ -163,7 +165,8 @@ export async function handleTeamAttachCommand(opts: {
 	setTaskListId(cfg.taskListId);
 	setStyle(cfg.style ?? "normal");
 	await refreshTasks();
-	renderWidget();
+	// Clear any /team done suppression — attaching to a team is explicit intent to work.
+	restoreWidget();
 
 	const lines: string[] = [
 		`Attached to team: ${cfg.teamId}`,
@@ -185,8 +188,9 @@ export async function handleTeamDetachCommand(opts: {
 	setTaskListId: (id: string) => void;
 	refreshTasks: () => Promise<void>;
 	renderWidget: () => void;
+	restoreWidget: () => void;
 }): Promise<void> {
-	const { ctx, defaultTeamId, teammates, getActiveTeamId, setActiveTeamId, setTaskListId, refreshTasks, renderWidget } = opts;
+	const { ctx, defaultTeamId, teammates, getActiveTeamId, setActiveTeamId, setTaskListId, refreshTasks, restoreWidget } = opts;
 
 	const activeTeamId = getActiveTeamId();
 	if (activeTeamId === defaultTeamId) {
@@ -207,7 +211,8 @@ export async function handleTeamDetachCommand(opts: {
 	setActiveTeamId(defaultTeamId);
 	setTaskListId(defaultTeamId);
 	await refreshTasks();
-	renderWidget();
+	// Clear any /team done suppression — returning to own team.
+	restoreWidget();
 
 	if (releaseResult === "not_owner") {
 		ctx.ui.notify(

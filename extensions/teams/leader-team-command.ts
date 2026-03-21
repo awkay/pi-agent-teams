@@ -41,8 +41,8 @@ const TEAM_HELP_TEXT = [
 	"  /team spawn <name> [fresh|branch] [shared|worktree] [plan] [--model <provider>/<modelId>] [--thinking <level>]",
 	"  /team panel",
 	"  /team send <name> <msg...>",
-	"  /team dm <name> <msg...>",
-	"  /team broadcast <msg...>",
+	"  /team dm <name> [--urgent] <msg...>",
+	"  /team broadcast [--urgent] <msg...>",
 	"  /team steer <name> <msg...>",
 	"  /team stop <name> [reason...]",
 	"  /team kill <name>",
@@ -83,6 +83,7 @@ export async function handleTeamCommand(opts: {
 	refreshTasks: () => Promise<void>;
 	renderWidget: () => void;
 	hideWidget: () => void;
+	restoreWidget: () => void;
 	getTaskListId: () => string | null;
 	setTaskListId: (id: string) => void;
 	getActiveTeamId: () => string;
@@ -108,6 +109,7 @@ export async function handleTeamCommand(opts: {
 		refreshTasks,
 		renderWidget,
 		hideWidget,
+		restoreWidget,
 		getTaskListId,
 		setTaskListId,
 		getActiveTeamId,
@@ -185,6 +187,7 @@ export async function handleTeamCommand(opts: {
 				setTaskListId,
 				refreshTasks,
 				renderWidget,
+				restoreWidget,
 			});
 		},
 
@@ -198,6 +201,7 @@ export async function handleTeamCommand(opts: {
 				setTaskListId,
 				refreshTasks,
 				renderWidget,
+				restoreWidget,
 			});
 		},
 
