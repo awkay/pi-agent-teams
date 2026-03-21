@@ -9,6 +9,7 @@ import { handleTeamAttachCommand, handleTeamDetachCommand } from "./leader-attac
 import {
 	handleTeamCleanupCommand,
 	handleTeamDelegateCommand,
+	handleTeamDoneCommand,
 	handleTeamKillCommand,
 	handleTeamPruneCommand,
 	handleTeamShutdownCommand,
@@ -54,6 +55,7 @@ const TEAM_HELP_TEXT = [
 	"  /team style init <name> [extends <base>]",
 	"  /team plan approve <name>",
 	"  /team plan reject <name> [feedback...]",
+	"  /team done [--force]  # end run: stop teammates + hide widget",
 	"  /team cleanup [--force]",
 	"  /team prune [--all]  # hide stale manual teammates (mark offline)",
 	"  /team task add <text...>",
@@ -80,6 +82,7 @@ export async function handleTeamCommand(opts: {
 	getTasks: () => TeamTask[];
 	refreshTasks: () => Promise<void>;
 	renderWidget: () => void;
+	hideWidget: () => void;
 	getTaskListId: () => string | null;
 	setTaskListId: (id: string) => void;
 	getActiveTeamId: () => string;
@@ -104,6 +107,7 @@ export async function handleTeamCommand(opts: {
 		getTasks,
 		refreshTasks,
 		renderWidget,
+		hideWidget,
 		getTaskListId,
 		setTaskListId,
 		getActiveTeamId,
@@ -194,6 +198,22 @@ export async function handleTeamCommand(opts: {
 				setTaskListId,
 				refreshTasks,
 				renderWidget,
+			});
+		},
+
+		done: async () => {
+			await handleTeamDoneCommand({
+				ctx,
+				rest,
+				teamId: activeTeamId,
+				teammates,
+				getTeamConfig,
+				leadName,
+				style,
+				stopAllTeammates,
+				refreshTasks,
+				getTasks,
+				hideWidget,
 			});
 		},
 

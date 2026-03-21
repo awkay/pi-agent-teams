@@ -413,6 +413,22 @@ export function runLeader(pi: ExtensionAPI): void {
 		getSessionTeamId: () => currentCtx?.sessionManager.getSessionId() ?? null,
 	});
 
+	// Auto-done detection: notify once when all tasks complete and teammates idle.
+	let autoDoneNotified = false;
+
+	const checkAutoDone = (): boolean => {
+		if (tasks.length === 0) return false;
+		const pending = tasks.filter((t) => t.status === "pending").length;
+		const inProgress = tasks.filter((t) => t.status === "in_progress").length;
+		if (pending > 0 || inProgress > 0) return false;
+
+		// All teammates must be idle or stopped
+		for (const [, rpc] of teammates) {
+			if (rpc.status === "streaming" || rpc.status === "starting") return false;
+		}
+		return true;
+	};
+
 	const refreshTasks = async () => {
 		if (!currentCtx || !currentTeamId) return;
 		const teamDir = getTeamDir(currentTeamId);
@@ -429,6 +445,17 @@ export function runLeader(pi: ExtensionAPI): void {
 				style,
 			}));
 		style = teamConfig.style ?? style;
+
+		// Auto-done hint (fire once per "all done" state transition)
+		if (checkAutoDone()) {
+			if (!autoDoneNotified) {
+				autoDoneNotified = true;
+				currentCtx.ui.notify("All tasks completed. Use /team done to end the team session.", "info");
+			}
+		} else {
+			// Reset when work resumes (new tasks added, etc.)
+			autoDoneNotified = false;
+		}
 	};
 
 	let widgetSuppressed = false;
@@ -437,6 +464,16 @@ export function runLeader(pi: ExtensionAPI): void {
 		if (!currentCtx || widgetSuppressed) return;
 		// Component widget (more informative + styled). Re-setting it is also our "refresh" trigger.
 		currentCtx.ui.setWidget("pi-teams", widgetFactory);
+	};
+
+	const hideWidget = () => {
+		widgetSuppressed = true;
+		if (currentCtx) currentCtx.ui.setWidget("pi-teams", undefined);
+	};
+
+	const restoreWidget = () => {
+		widgetSuppressed = false;
+		renderWidget();
 	};
 
 	const spawnTeammate: SpawnTeammateFn = async (ctx, opts): Promise<SpawnTeammateResult> => {
@@ -472,10 +509,21 @@ export function runLeader(pi: ExtensionAPI): void {
 
 		const t = new TeammateRpc(name, sessionFile);
 		teammates.set(name, t);
+		// Restore the widget if it was hidden by /team done — new work is starting.
+		restoreWidget();
 		// Track teammate activity for the widget/panel.
+		// Render on status-changing events for a more "live" feel.
 		const unsub = t.onEvent((ev) => {
 			tracker.handleEvent(name, ev);
 			transcriptTracker.handleEvent(name, ev);
+			// Refresh widget on events that change visible state (tool start/end, turn end).
+			if (
+				ev.type === "tool_execution_start" ||
+				ev.type === "tool_execution_end" ||
+				ev.type === "agent_end"
+			) {
+				renderWidget();
+			}
 		});
 		teammateEventUnsubs.set(name, unsub);
 		renderWidget();
@@ -737,6 +785,7 @@ export function runLeader(pi: ExtensionAPI): void {
 		getTaskListId: () => taskListId,
 		refreshTasks,
 		renderWidget,
+		hideWidget,
 		pendingPlanApprovals,
 	});
 
@@ -842,12 +891,10 @@ export function runLeader(pi: ExtensionAPI): void {
 				return ctx.sessionManager.getSessionId();
 			},
 			suppressWidget() {
-				widgetSuppressed = true;
-				ctx.ui.setWidget("pi-teams", undefined);
+				hideWidget();
 			},
 			restoreWidget() {
-				widgetSuppressed = false;
-				renderWidget();
+				restoreWidget();
 			},
 		});
 	};
@@ -896,6 +943,7 @@ export function runLeader(pi: ExtensionAPI): void {
 				getTasks: () => tasks,
 				refreshTasks,
 				renderWidget,
+				hideWidget,
 				getTaskListId: () => taskListId,
 				setTaskListId: (id) => {
 					taskListId = id;

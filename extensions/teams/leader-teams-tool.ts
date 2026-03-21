@@ -59,6 +59,7 @@ const TeamsActionSchema = StringEnum(
 		"member_shutdown",
 		"member_kill",
 		"member_prune",
+		"team_done",
 		"plan_approve",
 		"plan_reject",
 		"hooks_policy_get",
@@ -157,9 +158,10 @@ export function registerTeamsTool(opts: {
 	getTaskListId: () => string | null;
 	refreshTasks: () => Promise<void>;
 	renderWidget: () => void;
+	hideWidget: () => void;
 	pendingPlanApprovals: Map<string, { requestId: string; name: string; taskId?: string }>;
 }): void {
-	const { pi, teammates, spawnTeammate, getTeamId, getTaskListId, refreshTasks, renderWidget, pendingPlanApprovals } = opts;
+	const { pi, teammates, spawnTeammate, getTeamId, getTaskListId, refreshTasks, renderWidget, hideWidget, pendingPlanApprovals } = opts;
 
 	pi.registerTool({
 		name: "teams",
@@ -637,6 +639,60 @@ export function registerTeamsTool(opts: {
 				return {
 					content: [{ type: "text", text: `Pruned ${pruned.length} stale ${strings.memberTitle.toLowerCase()}(s): ${pruned.map((n) => formatMemberDisplayName(style, n)).join(", ")}` }],
 					details: { action, teamId, pruned },
+				};
+			}
+
+			if (action === "team_done") {
+				const tasks = await listTasks(teamDir, effectiveTlId);
+				const inProgress = tasks.filter((t) => t.status === "in_progress");
+				const force = params.all === true;
+
+				if (inProgress.length > 0 && !force) {
+					return {
+						content: [{
+							type: "text",
+							text: `${inProgress.length} task(s) still in progress. Set all=true to force.`,
+						}],
+						details: { action, teamId, inProgress: inProgress.length, blocked: true },
+					};
+				}
+
+				// Stop all RPC teammates
+				for (const [name, t] of teammates.entries()) {
+					try { await t.stop(); } catch { /* ignore */ }
+					await unassignTasksForAgent(teamDir, effectiveTlId, name, "team done");
+					await setMemberStatus(teamDir, name, "offline", {
+						meta: { stoppedReason: "team-done", stoppedAt: new Date().toISOString() },
+					});
+				}
+				teammates.clear();
+
+				// Mark config workers offline
+				const cfgWorkers = cfg.members.filter((m) => m.role === "worker" && m.status === "online");
+				for (const m of cfgWorkers) {
+					await setMemberStatus(teamDir, m.name, "offline", {
+						meta: { stoppedReason: "team-done", stoppedAt: new Date().toISOString() },
+					});
+				}
+
+				await refreshTasks();
+				hideWidget();
+
+				const completed = tasks.filter((t) => t.status === "completed").length;
+				const pending = tasks.filter((t) => t.status === "pending").length;
+				return {
+					content: [{
+						type: "text",
+						text: `Team done. ${tasks.length} task(s): ${completed} completed, ${pending} pending${inProgress.length > 0 ? `, ${inProgress.length} were in-progress (unassigned)` : ""}. Widget hidden.`,
+					}],
+					details: {
+						action,
+						teamId,
+						total: tasks.length,
+						completed,
+						pending,
+						unassigned: inProgress.length,
+					},
 				};
 			}
 

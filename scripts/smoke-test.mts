@@ -715,10 +715,46 @@ console.log("\n10. team discovery + attach claims");
 	}
 }
 
-// ── 11. docs/help drift guard ────────────────────────────────────────
-console.log("\n11. docs/help drift guard");
+// ── 11. /team done (end-of-run cleanup) ──────────────────────────────
+console.log("\n11. /team done (end-of-run)");
+{
+	const doneDir = path.join(tmpRoot, "done-test");
+	const doneTeamId = "done-team";
+	const doneTeamDir = path.join(doneDir, doneTeamId);
+	const doneTlId = doneTeamId;
+
+	await ensureTeamConfig(doneTeamDir, { teamId: doneTeamId, taskListId: doneTlId, leadName: "team-lead", style: "normal" });
+	await upsertMember(doneTeamDir, { name: "alice", role: "worker", status: "online" });
+	await upsertMember(doneTeamDir, { name: "bob", role: "worker", status: "online" });
+
+	// Create tasks and mark all completed
+	const t1 = await createTask(doneTeamDir, doneTlId, { subject: "Task 1", description: "", owner: "alice" });
+	const t2 = await createTask(doneTeamDir, doneTlId, { subject: "Task 2", description: "", owner: "bob" });
+	await completeTask(doneTeamDir, doneTlId, t1.id, "alice");
+	await completeTask(doneTeamDir, doneTlId, t2.id, "bob");
+
+	const doneTasks = await listTasks(doneTeamDir, doneTlId);
+	const allCompleted = doneTasks.every((t) => t.status === "completed");
+	assert(allCompleted, "/team done precondition: all tasks completed");
+	assertEq(doneTasks.length, 2, "/team done: 2 tasks exist");
+
+	// Mark workers offline (simulating what /team done does)
+	await setMemberStatus(doneTeamDir, "alice", "offline", { meta: { stoppedReason: "team-done" } });
+	await setMemberStatus(doneTeamDir, "bob", "offline", { meta: { stoppedReason: "team-done" } });
+
+	const cfgAfter = await loadTeamConfig(doneTeamDir);
+	const onlineAfter = (cfgAfter?.members ?? []).filter((m) => m.role === "worker" && m.status === "online");
+	assertEq(onlineAfter.length, 0, "/team done: all workers offline after done");
+
+	const offlineAlice = cfgAfter?.members.find((m) => m.name === "alice");
+	assert(offlineAlice?.meta?.["stoppedReason"] === "team-done", "/team done: alice has stoppedReason=team-done");
+}
+
+// ── 12. docs/help drift guard ────────────────────────────────────────
+console.log("\n12. docs/help drift guard");
 {
 	const help = getTeamHelpText();
+	assert(help.includes("/team done"), "help mentions /team done");
 	assert(help.includes("/team style list"), "help mentions /team style list");
 	assert(help.includes("/team style init"), "help mentions /team style init");
 	assert(help.includes("/team attach <teamId> [--claim]"), "help mentions /team attach claim mode");
@@ -729,6 +765,8 @@ console.log("\n11. docs/help drift guard");
 		console.log("  (skipped) README.md not found");
 	} else {
 		const readme = fs.readFileSync(readmePath, "utf8");
+		assert(readme.includes("/team done"), "README mentions /team done");
+		assert(readme.includes("\"action\": \"team_done\""), "README mentions teams tool team_done action");
 		assert(readme.includes("/team style list"), "README mentions /team style list");
 		assert(readme.includes("/team attach <teamId> [--claim]"), "README mentions /team attach claim mode");
 		assert(readme.includes("/team detach"), "README mentions /team detach");

@@ -1,6 +1,6 @@
 # Claude Agent Teams parity roadmap (pi-agent-teams)
 
-Last updated: 2026-02-10
+Last updated: 2026-03-21
 
 This document tracks **feature parity gaps** between:
 
@@ -8,12 +8,12 @@ This document tracks **feature parity gaps** between:
   - https://code.claude.com/docs/en/agent-teams#control-your-agent-team
   - https://code.claude.com/docs/en/interactive-mode#task-list
 
-…and this repository’s implementation:
+...and this repository's implementation:
 
 - `pi-agent-teams` (Pi extension)
 
 > Terminology note: this extension supports `PI_TEAMS_STYLE=<style>`.
-> This doc often uses “comrade” as a generic stand-in for “worker/teammate”, but **styles can customize terminology, naming, and lifecycle copy**.
+> This doc often uses "comrade" as a generic stand-in for "worker/teammate", but **styles can customize terminology, naming, and lifecycle copy**.
 > Built-ins: `normal`, `soviet`, `pirate`. Custom styles live under `~/.pi/agent/teams/_styles/`.
 
 ## Scope / philosophy
@@ -30,8 +30,8 @@ This document tracks **feature parity gaps** between:
 
 These are intentional differences / additions:
 
-- **Configurable styles** (`/team style …`) for terminology + naming + lifecycle copy.
-- **Git worktrees** for isolation (`/team spawn <name> … worktree`).
+- **Configurable styles** (`/team style ...`) for terminology + naming + lifecycle copy.
+- **Git worktrees** for isolation (`/team spawn <name> ... worktree`).
 - **Session branching** (clone leader context into a teammate).
 - A **status widget + interactive panel** (`/tw`, `/team panel`).
 
@@ -41,19 +41,20 @@ Legend: ✅ implemented • 🟡 partial • ❌ missing
 
 | Area | Claude docs behavior | Pi Teams status | Notes / next step | Priority |
 | --- | --- | --- | --- | --- |
-| Enablement | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` + settings | N/A | Pi extension is available when installed/loaded. | — |
+| Enablement | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` + settings | N/A | Pi extension is available when installed/loaded. | - |
 | Team config | `~/.claude/teams/<team>/config.json` w/ members | ✅ | `extensions/teams/team-config.ts` (under `~/.pi/agent/teams/...` or `PI_TEAMS_ROOT_DIR`). | P0 |
 | Task list (shared) | `~/.claude/tasks/<taskListId>/` + states + deps | ✅ | File-per-task + deps (`blockedBy`/`blocks`); `/team task dep add|rm|ls`; self-claim skips blocked tasks. | P0 |
 | Self-claim | Comrades self-claim next unassigned, unblocked task; file locking | ✅ | `claimNextAvailableTask()` + locks; enabled by default (`PI_TEAMS_DEFAULT_AUTO_CLAIM=1`). | P0 |
 | Explicit assign | Lead assigns task to comrade | ✅ | `/team task assign` sets owner + pings via mailbox. | P0 |
-| “Message” vs “broadcast” | Send to one comrade or all comrades | ✅ | `/team dm` + `/team broadcast` use mailbox; `/team send` uses RPC. Recipients = config workers + RPC map + active task owners. | P0 |
+| "Message" vs "broadcast" | Send to one comrade or all comrades | ✅ | `/team dm` + `/team broadcast` use mailbox; `/team send` uses RPC. Recipients = config workers + RPC map + active task owners. | P0 |
 | Comrade↔comrade messaging | Comrades message each other directly | ✅ | Worker tool `team_message`; messages via mailbox + CC leader via `peer_dm_sent`. | P1 |
 | Display modes | In-process selection (Shift+Up/Down); split panes (tmux/iTerm) | ❌ | Pi has widget/panel + commands, but no terminal-level comrade navigation/panes. | P2 |
 | Delegate mode | Lead restricted to coordination-only tools | ✅ | `/team delegate [on|off]`; `tool_call` blocks `bash/edit/write`; widget shows `[delegate]`. | P1 |
-| Plan approval | Comrade can be “plan required” and needs lead approval to implement | ✅ | `/team spawn <name> plan` → read-only tools; sends `plan_approval_request`; `/team plan approve|reject`. | P1 |
-| Shutdown handshake | Lead requests shutdown; comrade can approve/reject | ✅ | Protocol: `shutdown_request` → `shutdown_approved` / `shutdown_rejected`. `/team shutdown <name>` (graceful), `/team kill <name>` (SIGTERM). Wording is style-controlled (e.g. “was asked to shut down”, “walked the plank”). | P1 |
-| Cleanup team | “Clean up the team” removes shared resources after comrades stopped | ✅ | `/team cleanup [--force]` deletes only `<teamsRoot>/<teamId>` after safety checks. | P1 |
+| Plan approval | Comrade can be "plan required" and needs lead approval to implement | ✅ | `/team spawn <name> plan` → read-only tools; sends `plan_approval_request`; `/team plan approve|reject`. | P1 |
+| Shutdown handshake | Lead requests shutdown; comrade can approve/reject | ✅ | Protocol: `shutdown_request` → `shutdown_approved` / `shutdown_rejected`. `/team shutdown <name>` (graceful), `/team kill <name>` (SIGTERM). Wording is style-controlled (e.g. "was asked to shut down", "walked the plank"). | P1 |
+| Cleanup team | "Clean up the team" removes shared resources after comrades stopped | ✅ | `/team done [--force]` ends run (stops teammates, hides widget, auto-detects completion). `/team cleanup [--force]` deletes artifacts. | P1 |
 | Hooks / quality gates | `ComradeIdle`, `TaskCompleted` hooks | 🟡 | Optional leader-side hook runner (idle/task-complete/task-fail) via `PI_TEAMS_HOOKS_ENABLED=1` + scripts under `_hooks/`; inline failure surfacing + failure-action policies (`warn`/`followup`/`reopen`/`reopen_followup`) implemented; stable hook context payload exposed via `PI_TEAMS_HOOK_CONTEXT_JSON` + auto-remediation flow (reopen cap / follow-up owner policy / teammate notification). Runtime policy changes are agent-invocable via `teams` actions (`hooks_policy_get` / `hooks_policy_set`). | P2 |
+| Widget liveliness | Status updates in near real-time | ✅ | Event-driven widget refresh on teammate tool start/end and turn completion; auto-done detection with `/team done` hint. | P2 |
 | Task list UX | Ctrl+T toggle; show all/clear tasks by asking | 🟡 | Widget + `/team task list` + `/team task show` + `/team task clear`; panel supports fast `t`/`shift+t` toggle into task-centric view (`Ctrl+T` is reserved by Pi for thinking blocks). | P0 |
 | Shared task list across sessions | `CLAUDE_CODE_TASK_LIST_ID=...` | ✅ | Worker env: `PI_TEAMS_TASK_LIST_ID` (manual workers). Leader: `/team task use <taskListId>` (persisted). Newly spawned workers inherit; existing workers need restart. | P1 |
 | Join/attach flow | Join existing team context from another running session | 🟡 | `/team attach list`, `/team attach <teamId> [--claim]`, `/team detach` plus claim heartbeat/takeover handshake added. Widget/panel now show attached-mode banner + detach hint. | P2 |
@@ -100,7 +101,7 @@ Legend: ✅ implemented • 🟡 partial • ❌ missing
 9) **Shared task list across sessions** ✅
    - `/team task use <taskListId>` + persisted `config.json`
 
-### P2: UX + “product-level” parity
+### P2: UX + "product-level" parity
 
 10) **Hooks / quality gates** 🟡 (partial)
    - Implemented: optional leader-side hook runner (opt-in + timeout + logs).

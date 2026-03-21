@@ -28,6 +28,21 @@ export interface WidgetDeps {
 	getSessionTeamId(): string | null;
 }
 
+/**
+ * Check if all tasks are completed and all teammates are idle/stopped.
+ * Used by the widget to show a "done" hint.
+ */
+function isTeamDone(tasks: TeamTask[], teammates: ReadonlyMap<string, TeammateRpc>): boolean {
+	if (tasks.length === 0) return false;
+	const pending = tasks.filter((t) => t.status === "pending").length;
+	const inProgress = tasks.filter((t) => t.status === "in_progress").length;
+	if (pending > 0 || inProgress > 0) return false;
+	for (const [, rpc] of teammates) {
+		if (rpc.status === "streaming" || rpc.status === "starting") return false;
+	}
+	return true;
+}
+
 export type WidgetFactory = (tui: TUI, theme: Theme) => Component;
 
 interface WidgetRow {
@@ -198,10 +213,15 @@ export function createTeamsWidget(deps: WidgetDeps): WidgetFactory {
 				}
 
 				// ── Hints line ──
-				const hints = theme.fg(
-					"dim",
-					" /team widget \u00b7 /team dm <name> <msg> \u00b7 /team task list",
-				);
+				const teamDone = isTeamDone(tasks, teammates);
+				const hints = teamDone
+					? theme.fg("success", " All tasks done.") +
+						" " +
+						theme.fg("dim", "/team done \u00b7 /team task list")
+					: theme.fg(
+							"dim",
+							" /team widget \u00b7 /team dm <name> <msg> \u00b7 /team task list",
+						);
 				lines.push(truncateToWidth(hints, width));
 
 				return lines;
