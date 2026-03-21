@@ -88,8 +88,17 @@ function summarizeTranscriptEntry(entry: TranscriptEntry | undefined): string | 
 		if (!compact) return null;
 		return compact.length > 96 ? `${compact.slice(0, 95)}…` : compact;
 	}
-	if (entry.kind === "tool_start") return `running ${entry.toolName}`;
-	if (entry.kind === "tool_end") return `finished ${entry.toolName} (${(entry.durationMs / 1000).toFixed(1)}s)`;
+	if (entry.kind === "tool_start") {
+		const detail = entry.summary ? ` ${entry.summary}` : "";
+		const text = `running ${entry.toolName}${detail}`;
+		return text.length > 96 ? `${text.slice(0, 95)}…` : text;
+	}
+	if (entry.kind === "tool_end") {
+		const prefix = entry.isError ? "failed" : "finished";
+		const detail = entry.summary ? ` → ${entry.summary}` : "";
+		const text = `${prefix} ${entry.toolName} (${(entry.durationMs / 1000).toFixed(1)}s)${detail}`;
+		return text.length > 96 ? `${text.slice(0, 95)}…` : text;
+	}
 	const tok = formatTokens(entry.tokens);
 	return `turn ${String(entry.turnNumber)} complete (${tok} tokens)`;
 }

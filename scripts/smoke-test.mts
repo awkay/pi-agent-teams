@@ -45,6 +45,7 @@ import {
 	shouldCreateHookFollowupTask,
 	shouldReopenTaskOnHookFailure,
 } from "../extensions/teams/hooks.js";
+import { TranscriptTracker, type TranscriptEntry } from "../extensions/teams/activity-tracker.js";
 import { listDiscoveredTeams } from "../extensions/teams/team-discovery.js";
 import {
 	acquireTeamAttachClaim,
@@ -1230,6 +1231,178 @@ console.log("\n15. docs/help drift guard");
 		assert(skill.includes("urgent"), "SKILL.md mentions urgent flag");
 		assert(skill.includes("model_policy_get"), "SKILL.md mentions model_policy_get action");
 		assert(skill.includes("hooks_policy_get"), "SKILL.md mentions hooks_policy_get action");
+	}
+}
+
+// ── 12. transcript tracker (tool content summarization) ─────────────
+{
+	console.log(`\n12. transcript tracker (tool content summarization)`);
+
+	const tracker = new TranscriptTracker();
+
+	// Helper to get last entry with proper narrowing
+	function lastEntry(name: string): TranscriptEntry {
+		const entries = tracker.get(name).getEntries();
+		const last = entries[entries.length - 1];
+		if (!last) throw new Error("no transcript entries");
+		return last;
+	}
+
+	// Simulate tool_execution_start with read tool
+	tracker.handleEvent("alice", {
+		type: "tool_execution_start",
+		toolCallId: "tc1",
+		toolName: "Read",
+		args: { path: "/src/index.ts" },
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_start", "read tool_start recorded");
+		if (e.kind === "tool_start") {
+			assert(e.summary === "/src/index.ts", "read summary is file path");
+		}
+	}
+
+	// Simulate tool_execution_end with content array (ToolResultMessage shape)
+	tracker.handleEvent("alice", {
+		type: "tool_execution_end",
+		toolCallId: "tc1",
+		toolName: "Read",
+		result: { content: [{ type: "text", text: "file contents here\nline two" }] },
+		isError: false,
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_end", "read tool_end recorded");
+		if (e.kind === "tool_end") {
+			assert(e.summary === "file contents here line two", "read result summarized from content array");
+			assert(!e.isError, "read result not error");
+		}
+	}
+
+	// Simulate bash tool with command
+	tracker.handleEvent("alice", {
+		type: "tool_execution_start",
+		toolCallId: "tc2",
+		toolName: "Bash",
+		args: { command: "npm run   check" },
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_start", "bash tool_start recorded");
+		if (e.kind === "tool_start") {
+			assert(e.summary === "npm run check", "bash summary normalizes whitespace");
+		}
+	}
+
+	// Simulate bash error result
+	tracker.handleEvent("alice", {
+		type: "tool_execution_end",
+		toolCallId: "tc2",
+		toolName: "Bash",
+		result: { content: [{ type: "text", text: "Command failed with exit code 1" }] },
+		isError: true,
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_end", "bash error tool_end recorded");
+		if (e.kind === "tool_end") {
+			assert(e.isError, "bash error flagged");
+			assert(e.summary === "Command failed with exit code 1", "bash error summary from content");
+		}
+	}
+
+	// Simulate edit tool
+	tracker.handleEvent("alice", {
+		type: "tool_execution_start",
+		toolCallId: "tc3",
+		toolName: "Edit",
+		args: { path: "/src/utils.ts", oldText: "foo", newText: "bar" },
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_start", "edit tool_start recorded");
+		if (e.kind === "tool_start") {
+			assert(e.summary === "/src/utils.ts", "edit summary is file path");
+		}
+	}
+
+	// Simulate grep tool
+	tracker.handleEvent("alice", {
+		type: "tool_execution_start",
+		toolCallId: "tc4",
+		toolName: "Grep",
+		args: { pattern: "TODO", path: "/src" },
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_start", "grep tool_start recorded");
+		if (e.kind === "tool_start") {
+			assert(e.summary === "TODO in /src", "grep summary includes pattern and path");
+		}
+	}
+
+	// Simulate team_message tool — should show recipient + message, not just recipient
+	tracker.handleEvent("alice", {
+		type: "tool_execution_start",
+		toolCallId: "tc4b",
+		toolName: "team_message",
+		args: { recipient: "bob", message: "please rebase onto main", urgent: false },
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_start", "team_message tool_start recorded");
+		if (e.kind === "tool_start") {
+			assert(e.summary === "→ bob: please rebase onto main", "team_message summary includes recipient and message");
+		}
+	}
+
+	// Simulate unknown tool — fallback to first string arg
+	tracker.handleEvent("alice", {
+		type: "tool_execution_start",
+		toolCallId: "tc5",
+		toolName: "CustomTool",
+		args: { target: "my-resource" },
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_start", "unknown tool_start recorded");
+		if (e.kind === "tool_start") {
+			assert(e.summary === "my-resource", "unknown tool fallback to first string arg");
+		}
+	}
+
+	// Simulate empty result
+	tracker.handleEvent("alice", {
+		type: "tool_execution_end",
+		toolCallId: "tc5",
+		toolName: "CustomTool",
+		result: { content: [{ type: "text", text: "" }] },
+		isError: false,
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_end", "empty result tool_end recorded");
+		if (e.kind === "tool_end") {
+			assert(e.summary === "(empty)", "empty result shows (empty)");
+		}
+	}
+
+	// Simulate long summary truncation
+	const longPath = "/very/long/" + "a".repeat(200) + ".ts";
+	tracker.handleEvent("alice", {
+		type: "tool_execution_start",
+		toolCallId: "tc6",
+		toolName: "Read",
+		args: { path: longPath },
+	});
+	{
+		const e = lastEntry("alice");
+		assert(e.kind === "tool_start", "long path tool_start recorded");
+		if (e.kind === "tool_start") {
+			assert(e.summary.length <= 120, "long summary truncated to 120 chars");
+			assert(e.summary.endsWith("…"), "truncated summary ends with ellipsis");
+		}
 	}
 }
 
