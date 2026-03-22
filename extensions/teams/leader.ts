@@ -1003,10 +1003,12 @@ export function runLeader(pi: ExtensionAPI): void {
 				getTaskListId: () => taskListId,
 				setTaskListId: (id) => {
 					taskListId = id;
+					delegationTracker.clear();
 				},
 				getActiveTeamId: () => currentTeamId ?? ctx.sessionManager.getSessionId(),
 				setActiveTeamId: (teamId) => {
 					currentTeamId = teamId;
+					delegationTracker.clear();
 				},
 				pendingPlanApprovals,
 				getDelegateMode: () => delegateMode,

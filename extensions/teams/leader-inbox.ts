@@ -354,7 +354,10 @@ export async function pollLeaderInbox(opts: {
 	if (sendLeaderLlmMessage) {
 		for (const batch of batchCompletions) {
 			const taskRefs = batch.taskIds.map((id) => `#${id}`).join(", ");
-			const msg = `[Team] All delegated tasks completed (${taskRefs}). Review the results and continue.`;
+			const suffix = enqueueHook
+				? "Quality gates are still running and may change task states."
+				: "Review the results and continue.";
+			const msg = `[Team] All delegated tasks completed (${taskRefs}). ${suffix}`;
 			try {
 				if (ctx.isIdle()) {
 					sendLeaderLlmMessage(msg);
