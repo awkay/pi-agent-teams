@@ -18,7 +18,7 @@ import { isTeamDone } from "./teams-ui-shared.js";
 import { createTeamsWidget } from "./teams-widget.js";
 import { resolveTeammateModelSelection, formatProviderModel } from "./model-policy.js";
 import { getTeamsStyleFromEnv, type TeamsStyle, formatMemberDisplayName, getTeamsStrings } from "./teams-style.js";
-import { pollLeaderInbox as pollLeaderInboxImpl } from "./leader-inbox.js";
+import { DelegationTracker, pollLeaderInbox as pollLeaderInboxImpl } from "./leader-inbox.js";
 import {
 	getHookBaseName,
 	getTeamsHookFailureAction,
@@ -117,6 +117,7 @@ export function runLeader(pi: ExtensionAPI): void {
 	let tasks: TeamTask[] = [];
 	let teamConfig: TeamConfig | null = null;
 	const pendingPlanApprovals = new Map<string, { requestId: string; name: string; taskId?: string }>();
+	const delegationTracker = new DelegationTracker();
 	// Task list namespace. By default we keep it aligned with the current session id.
 	// (Do NOT read PI_TEAMS_TASK_LIST_ID for the leader; that env var is intended for workers
 	// and can easily be set globally, which makes the leader "lose" its tasks.)
@@ -161,6 +162,7 @@ export function runLeader(pi: ExtensionAPI): void {
 		);
 		currentTeamId = sessionTeamId;
 		taskListId = sessionTeamId;
+		delegationTracker.clear();
 		await refreshTasks();
 		renderWidget();
 	};
@@ -668,6 +670,7 @@ export function runLeader(pi: ExtensionAPI): void {
 			sendLeaderLlmMessage: (content, options) => {
 				pi.sendUserMessage(content, options);
 			},
+			delegationTracker,
 		});
 	};
 
@@ -737,6 +740,7 @@ export function runLeader(pi: ExtensionAPI): void {
 			await stopAllTeammates(currentCtx, `The ${strings.teamNoun} is dissolved — leader moved on`);
 		}
 		stopLoops();
+		delegationTracker.clear();
 
 		// Clean up worktrees from the old session before switching.
 		// Only clean up teams this session owns — never attached teams.
@@ -832,6 +836,7 @@ export function runLeader(pi: ExtensionAPI): void {
 			await stopAllTeammates(currentCtx, reason);
 		},
 		pendingPlanApprovals,
+		delegationTracker,
 	});
 
 	const openWidget = async (ctx: ExtensionCommandContext) => {
@@ -999,10 +1004,12 @@ export function runLeader(pi: ExtensionAPI): void {
 				getTaskListId: () => taskListId,
 				setTaskListId: (id) => {
 					taskListId = id;
+					delegationTracker.clear();
 				},
 				getActiveTeamId: () => currentTeamId ?? ctx.sessionManager.getSessionId(),
 				setActiveTeamId: (teamId) => {
 					currentTeamId = teamId;
+					delegationTracker.clear();
 				},
 				pendingPlanApprovals,
 				getDelegateMode: () => delegateMode,

@@ -42,6 +42,7 @@ import {
 	toolActivity,
 } from "./teams-ui-shared.js";
 import type { ContextMode, WorkspaceMode, SpawnTeammateFn } from "./spawn-types.js";
+import type { DelegationTracker } from "./leader-inbox.js";
 
 type TeamsToolDelegateTask = { text: string; assignee?: string };
 
@@ -173,8 +174,9 @@ export function registerTeamsTool(opts: {
 	hideWidget: () => void;
 	stopAllTeammates: (reason: string) => Promise<void>;
 	pendingPlanApprovals: Map<string, { requestId: string; name: string; taskId?: string }>;
+	delegationTracker?: DelegationTracker;
 }): void {
-	const { pi, teammates, spawnTeammate, getTeamId, getTaskListId, getTracker, getTeamConfig: getTeamCfg, refreshTasks, renderWidget, hideWidget, stopAllTeammates, pendingPlanApprovals } = opts;
+	const { pi, teammates, spawnTeammate, getTeamId, getTaskListId, getTracker, getTeamConfig: getTeamCfg, refreshTasks, renderWidget, hideWidget, stopAllTeammates, pendingPlanApprovals, delegationTracker } = opts;
 
 	pi.registerTool({
 		name: "teams",
@@ -1228,6 +1230,9 @@ export function registerTeamsTool(opts: {
 				warnings.push(...res.warnings);
 			}
 
+			// Two-pass delegation: create all tasks first, then notify workers.
+			// This ensures DelegationTracker has the batch registered before any
+			// worker can complete a task and emit an idle_notification.
 			const assignments: Array<{ taskId: string; assignee: string; subject: string }> = [];
 			let rr = 0;
 			for (const t of inputTasks) {
@@ -1268,13 +1273,23 @@ export function registerTeamsTool(opts: {
 				const subject = firstLine.slice(0, 120);
 				const task = await createTask(teamDir, effectiveTlId, { subject, description, owner: assignee });
 
-				await writeToMailbox(teamDir, effectiveTlId, assignee, {
+				assignments.push({ taskId: task.id, assignee, subject });
+			}
+
+			// Register batch BEFORE notifying workers so completions are never missed.
+			if (delegationTracker && assignments.length > 0) {
+				delegationTracker.addBatch(assignments.map((a) => a.taskId));
+			}
+
+			// Now notify workers via mailbox.
+			for (const a of assignments) {
+				const task = await getTask(teamDir, effectiveTlId, a.taskId);
+				if (!task) continue;
+				await writeToMailbox(teamDir, effectiveTlId, a.assignee, {
 					from: cfg.leadName,
 					text: JSON.stringify(taskAssignmentPayload(task, cfg.leadName)),
 					timestamp: new Date().toISOString(),
 				});
-
-				assignments.push({ taskId: task.id, assignee, subject });
 			}
 
 			void refreshTasks().finally(renderWidget);
