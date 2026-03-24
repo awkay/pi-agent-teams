@@ -33,6 +33,7 @@ import {
 } from "./hooks.js";
 import { handleTeamCommand } from "./leader-team-command.js";
 import { registerTeamsTool } from "./leader-teams-tool.js";
+import { getParentSessionId, shouldSilenceInheritedParentAttachClaimWarning } from "./session-parent.js";
 import type { ContextMode, SpawnTeammateFn, SpawnTeammateResult, WorkspaceMode } from "./spawn-types.js";
 
 function getTeamsExtensionEntryPath(): string | null {
@@ -155,6 +156,7 @@ export function runLeader(pi: ExtensionAPI): void {
 	let delegateMode = process.env.PI_TEAMS_DELEGATE_MODE === "1";
 	let style: TeamsStyle = getTeamsStyleFromEnv();
 	let lastAttachClaimHeartbeatMs = 0;
+	let inheritedParentTeamId: string | null = null;
 
 	const stopLoops = () => {
 		if (refreshTimer) clearInterval(refreshTimer);
@@ -180,13 +182,22 @@ export function runLeader(pi: ExtensionAPI): void {
 		const result = await heartbeatTeamAttachClaim(getTeamDir(currentTeamId), sessionTeamId);
 		if (result === "updated") return;
 
-		ctx.ui.notify(
-			`Attach claim for team ${currentTeamId} is no longer owned by this session; detaching to session team.`,
-			"warning",
-		);
+		const lostTeamId = currentTeamId;
+		const shouldSilenceWarning = shouldSilenceInheritedParentAttachClaimWarning({
+			currentTeamId: lostTeamId,
+			parentSessionId: inheritedParentTeamId,
+			result,
+		});
+		inheritedParentTeamId = null;
 		currentTeamId = sessionTeamId;
 		taskListId = sessionTeamId;
 		delegationTracker.clear();
+		if (!shouldSilenceWarning) {
+			ctx.ui.notify(
+				`Attach claim for team ${lostTeamId} is no longer owned by this session; detaching to session team.`,
+				"warning",
+			);
+		}
 		await refreshTasks();
 		renderWidget();
 	};
@@ -709,6 +720,7 @@ export function runLeader(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		currentCtx = ctx;
 		currentTeamId = currentCtx.sessionManager.getSessionId();
+		inheritedParentTeamId = getParentSessionId(currentCtx.sessionManager);
 		// Keep the task list aligned with the active session. If you want a shared namespace,
 		// use `/team task use <taskListId>` after switching.
 		taskListId = currentTeamId;
@@ -792,6 +804,7 @@ export function runLeader(pi: ExtensionAPI): void {
 
 		currentCtx = ctx;
 		currentTeamId = currentCtx.sessionManager.getSessionId();
+		inheritedParentTeamId = getParentSessionId(currentCtx.sessionManager);
 		// Keep the task list aligned with the active session. If you want a shared namespace,
 		// use `/team task use <taskListId>` after switching.
 		taskListId = currentTeamId;
@@ -1072,6 +1085,7 @@ export function runLeader(pi: ExtensionAPI): void {
 				getActiveTeamId: () => currentTeamId ?? ctx.sessionManager.getSessionId(),
 				setActiveTeamId: (teamId) => {
 					currentTeamId = teamId;
+					inheritedParentTeamId = null;
 					delegationTracker.clear();
 				},
 				pendingPlanApprovals,
