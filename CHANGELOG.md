@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+### Fixes
+
+- **Inherited parent-team attach warnings** — forked/branched child sessions now silently detach back to their own session team when they briefly inherit a parent team id without any attach claim. This removes the noisy warning seen in subagent-style flows while preserving normal `not_owner` warnings for real claim conflicts.
+
 ## 0.5.2
 
 ### Fixes
