@@ -70,7 +70,9 @@ import {
 	isPlanRejectedMessage,
 } from "../extensions/teams/protocol.js";
 import { pollLeaderInbox } from "../extensions/teams/leader-inbox.js";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { getParentSessionId, shouldSilenceInheritedParentAttachClaimWarning } from "../extensions/teams/session-parent.js";
+import { SessionManager, type ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 
 // ── helpers ──────────────────────────────────────────────────────────
 let passed = 0;
@@ -842,6 +844,67 @@ console.log("\n10. team discovery + attach claims");
 		assertEq(b.style, "pirate", "discovered style");
 		assertEq(b.onlineWorkerCount, 1, "discovered online worker count");
 		assertEq(b.attachedBySessionId, "session-c", "discovered attach claim owner");
+	}
+}
+
+// ── 10b. branched sessions + inherited attach claims ────────────────
+console.log("\n10b. branched sessions + inherited attach claims");
+{
+	const sessionsDir = path.join(tmpRoot, "branch-session-test");
+	const parent = SessionManager.create(tmpRoot, sessionsDir);
+	const assistantMessage: AssistantMessage = {
+		role: "assistant",
+		content: [{ type: "text", text: "ok" }],
+		api: "test",
+		provider: "test",
+		model: "test",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
+	parent.appendMessage(assistantMessage);
+	const parentLeafId = parent.getLeafId();
+	const originalParentSessionId = parent.getSessionId();
+	assert(parentLeafId !== null, "branch test parent has a leaf entry");
+	if (parentLeafId) {
+		const branchedPath = parent.createBranchedSession(parentLeafId);
+		assert(branchedPath !== null, "createBranchedSession returns child session path");
+		if (branchedPath) {
+			const child = SessionManager.open(branchedPath, sessionsDir);
+			const parentSessionId = getParentSessionId(child);
+			assertEq(parentSessionId, originalParentSessionId, "getParentSessionId resolves branch parent session id");
+			assert(
+				shouldSilenceInheritedParentAttachClaimWarning({
+					currentTeamId: originalParentSessionId,
+					parentSessionId,
+					result: "missing",
+				}),
+				"silences missing inherited parent-team claim warnings",
+			);
+			assert(
+				!shouldSilenceInheritedParentAttachClaimWarning({
+					currentTeamId: originalParentSessionId,
+					parentSessionId,
+					result: "not_owner",
+				}),
+				"keeps non-owner inherited parent-team warnings visible",
+			);
+			assert(
+				!shouldSilenceInheritedParentAttachClaimWarning({
+					currentTeamId: child.getSessionId(),
+					parentSessionId,
+					result: "missing",
+				}),
+				"does not silence unrelated missing-claim warnings",
+			);
+		}
 	}
 }
 
