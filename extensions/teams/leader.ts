@@ -34,7 +34,7 @@ import {
 import { handleTeamCommand } from "./leader-team-command.js";
 import { registerTeamsTool } from "./leader-teams-tool.js";
 import { getParentSessionId, shouldSilenceInheritedParentAttachClaimWarning } from "./session-parent.js";
-import { branchSelectionNote, resolveBranchLeafSelection } from "./session-branching.js";
+import { branchSelectionNote, ensureSessionFileMaterialized, resolveBranchLeafSelection } from "./session-branching.js";
 import type { ContextMode, SpawnTeammateFn, SpawnTeammateResult, WorkspaceMode } from "./spawn-types.js";
 
 function getTeamsExtensionEntryPath(): string | null {
@@ -97,6 +97,10 @@ async function createSessionForTeammate(
 			const fallback = SessionManager.create(ctx.cwd, teamSessionsDir);
 			return { sessionFile: fallback.getSessionFile(), note: "branch(failed->fresh)", warnings };
 		}
+		if (selection.replayUserMessage) {
+			sm.appendMessage(JSON.parse(JSON.stringify(selection.replayUserMessage)) as Parameters<typeof sm.appendMessage>[0]);
+		}
+		await ensureSessionFileMaterialized(sm, branched);
 		return { sessionFile: branched, note: branchSelectionNote(selection), warnings };
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);

@@ -1,12 +1,16 @@
-import type { SessionEntry } from "@mariozechner/pi-coding-agent";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { SessionEntry, SessionManager } from "@mariozechner/pi-coding-agent";
 
 export type BranchLeafSelection = {
 	leafId: string;
 	adjusted: boolean;
 	reason: "requested" | "clean-turn-assistant" | "clean-turn-user";
+	replayUserMessage?: UserMessageLike;
 };
 
 type MessageLike = Record<string, unknown> & { role: string };
+type UserMessageLike = MessageLike & { role: "user"; content: unknown; timestamp: number };
 
 type MessageEntryLike = SessionEntry & {
 	type: "message";
@@ -22,7 +26,7 @@ function isMessageEntry(entry: SessionEntry): entry is MessageEntryLike {
 	return isRecord(entry.message) && typeof entry.message.role === "string";
 }
 
-function isUserMessageEntry(entry: SessionEntry): entry is MessageEntryLike & { message: MessageLike & { role: "user" } } {
+function isUserMessageEntry(entry: SessionEntry): entry is MessageEntryLike & { message: UserMessageLike } {
 	return isMessageEntry(entry) && entry.message.role === "user";
 }
 
@@ -67,11 +71,26 @@ export function resolveBranchLeafSelection(path: SessionEntry[], requestedLeafId
 		return { leafId: requestedLeafId, adjusted: false, reason: "requested" };
 	}
 
+	let latestUserBeforeActiveTurn: UserMessageLike | undefined;
+	for (let i = lastAssistantIndex - 1; i >= 0; i -= 1) {
+		const candidate = path[i];
+		if (!candidate) continue;
+		if (isUserMessageEntry(candidate)) {
+			latestUserBeforeActiveTurn = candidate.message;
+			break;
+		}
+	}
+
 	for (let i = lastAssistantIndex - 1; i >= 0; i -= 1) {
 		const candidate = path[i];
 		if (!candidate) continue;
 		if (isStableAssistantEntry(candidate)) {
-			return { leafId: candidate.id, adjusted: candidate.id !== requestedLeafId, reason: "clean-turn-assistant" };
+			return {
+				leafId: candidate.id,
+				adjusted: candidate.id !== requestedLeafId,
+				reason: "clean-turn-assistant",
+				replayUserMessage: latestUserBeforeActiveTurn,
+			};
 		}
 	}
 
@@ -84,6 +103,18 @@ export function resolveBranchLeafSelection(path: SessionEntry[], requestedLeafId
 	}
 
 	return { leafId: requestedLeafId, adjusted: false, reason: "requested" };
+}
+
+export async function ensureSessionFileMaterialized(
+	sm: Pick<SessionManager, "getHeader" | "getEntries">,
+	sessionFile: string,
+): Promise<void> {
+	if (fs.existsSync(sessionFile)) return;
+	const header = sm.getHeader();
+	if (!header) return;
+	await fs.promises.mkdir(path.dirname(sessionFile), { recursive: true });
+	const lines = [JSON.stringify(header), ...sm.getEntries().map((entry) => JSON.stringify(entry))].join("\n") + "\n";
+	await fs.promises.writeFile(sessionFile, lines, "utf8");
 }
 
 export function branchSelectionNote(selection: BranchLeafSelection): string {

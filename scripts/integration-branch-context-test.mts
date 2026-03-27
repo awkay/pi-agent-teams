@@ -91,10 +91,11 @@ const agentName = "alpha";
 const leadName = "team-lead";
 const procs: ChildProcess[] = [];
 
-fs.mkdirSync(repoDir, { recursive: true });
-fs.mkdirSync(sessionsDir, { recursive: true });
+try {
+	fs.mkdirSync(repoDir, { recursive: true });
+	fs.mkdirSync(sessionsDir, { recursive: true });
 
-git(["init", "-b", "main"], repoDir);
+	git(["init", "-b", "main"], repoDir);
 git(["config", "user.name", "Test User"], repoDir);
 git(["config", "user.email", "test@example.com"], repoDir);
 fs.writeFileSync(path.join(repoDir, "README.md"), "branch context integration\n", "utf8");
@@ -168,16 +169,31 @@ const selection = resolveBranchLeafSelection(parent.getBranch(parentLeafId), par
 assert(selection.adjusted, "expected unfinished turn branch selection to adjust away from active leaf");
 assert(selection.leafId === stableAssistantId, `expected branch selection to use stable assistant id, got ${selection.leafId}`);
 assert(branchSelectionNote(selection) === "branch(clean-turn)", "expected clean-turn branch note");
+assert(selection.replayUserMessage?.role === "user", "expected the active user request to be replayed into the cleaned child branch");
 
 const branchedSessionFile = parent.createBranchedSession(selection.leafId);
 assert(Boolean(branchedSessionFile), "expected branched session file to be created");
 if (!branchedSessionFile) {
 	throw new Error("Missing branched session file");
 }
+if (selection.replayUserMessage) {
+	parent.appendMessage(JSON.parse(JSON.stringify(selection.replayUserMessage)) as Parameters<typeof parent.appendMessage>[0]);
+}
 
 const childEntries = parent.getEntries();
 assert(childEntries.some((entry) => entry.id === stableAssistantId), "child session should retain the latest completed assistant message");
-assert(!childEntries.some((entry) => entry.id === currentUserId), "child session should drop the unfinished-turn user message");
+assert(!childEntries.some((entry) => entry.id === currentUserId), "child session should drop the original unfinished-turn user entry");
+assert(
+	childEntries.some(
+		(entry) =>
+			entry.type === "message" &&
+			typeof entry.message === "object" &&
+			entry.message !== null &&
+			(entry.message as { role?: string }).role === "user" &&
+			JSON.stringify((entry.message as { content?: unknown }).content).includes("Investigate the repo, then delegate part of it."),
+	),
+	"child session should replay the active user request onto the cleaned branch",
+);
 assert(
 	!childEntries.some(
 		(entry) =>
@@ -203,7 +219,6 @@ const repoRoot = path.resolve(scriptDir, "..");
 const entryPath = path.join(repoRoot, "extensions", "teams", "index.ts");
 assert(fs.existsSync(entryPath), `Missing teams entry path: ${entryPath}`);
 
-let stderr = "";
 const worker = spawn(
 	"pi",
 	[
@@ -242,9 +257,6 @@ const worker = spawn(
 	},
 );
 procs.push(worker);
-worker.stderr.on("data", (chunk: Buffer | string) => {
-	stderr += chunk.toString();
-});
 
 await waitFor(
 	async () => {
@@ -274,16 +286,12 @@ await waitFor(
 	{ timeoutMs: timeoutSec * 1000, pollMs: 500, label: `task #${task.id} completion` },
 );
 
-console.log("PASS: branch context integration test passed");
-
-await terminateAll(procs);
-try {
-	fs.rmSync(tmpRoot, { recursive: true, force: true });
-} catch {
-	// ignore
-}
-
-if (stderr.trim().length > 0) {
-	console.log("worker stderr:");
-	console.log(stderr.trim());
+	console.log("PASS: branch context integration test passed");
+} finally {
+	await terminateAll(procs);
+	try {
+		fs.rmSync(tmpRoot, { recursive: true, force: true });
+	} catch {
+		// ignore
+	}
 }

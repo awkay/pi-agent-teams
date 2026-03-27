@@ -71,7 +71,7 @@ import {
 } from "../extensions/teams/protocol.js";
 import { pollLeaderInbox } from "../extensions/teams/leader-inbox.js";
 import { getParentSessionId, shouldSilenceInheritedParentAttachClaimWarning } from "../extensions/teams/session-parent.js";
-import { branchSelectionNote, resolveBranchLeafSelection } from "../extensions/teams/session-branching.js";
+import { branchSelectionNote, ensureSessionFileMaterialized, resolveBranchLeafSelection } from "../extensions/teams/session-branching.js";
 import { SessionManager, type ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 
@@ -955,14 +955,32 @@ console.log("\n10b. branched sessions + inherited attach claims");
 		assert(selection.adjusted, "unfinished turn adjusts branch leaf away from active leaf");
 		assertEq(selection.leafId, stableAssistantId, "unfinished turn branches from latest completed assistant message");
 		assertEq(branchSelectionNote(selection), "branch(clean-turn)", "unfinished turn note marks clean-turn branch");
+		assert(
+			selection.replayUserMessage?.role === "user",
+			"unfinished turn keeps the active user request available for replay into the child branch",
+		);
 
 		const branchedPath = branchFromUser.createBranchedSession(selection.leafId);
 		assert(branchedPath !== null, "clean-turn branch session created");
+		if (selection.replayUserMessage) {
+			branchFromUser.appendMessage(JSON.parse(JSON.stringify(selection.replayUserMessage)) as Parameters<typeof branchFromUser.appendMessage>[0]);
+		}
+		if (branchedPath) await ensureSessionFileMaterialized(branchFromUser, branchedPath);
 		const childEntries = branchFromUser.getEntries();
 		assert(childEntries.some((entry) => entry.id === stableAssistantId), "clean-turn child keeps latest completed assistant");
 		assert(
-			!childEntries.some((entry) => entry.id === currentUserId),
-			"clean-turn child drops the current unfinished-turn user message",
+			childEntries.some(
+				(entry) =>
+					entry.type === "message" &&
+					isRecord(entry.message) &&
+					entry.message.role === "user" &&
+					JSON.stringify(entry.message.content).includes("Investigate something, then delegate it."),
+			),
+			"clean-turn child replays the active user request onto the cleaned branch",
+		);
+		assert(
+			childEntries.filter((entry) => entry.id === currentUserId).length === 0,
+			"clean-turn child does not keep the original unfinished-turn user entry id",
 		);
 		assert(
 			!childEntries.some((entry) => entry.type === "message" && isRecord(entry.message) && entry.message.role === "toolResult"),
@@ -978,6 +996,38 @@ console.log("\n10b. branched sessions + inherited attach claims");
 			),
 			"clean-turn child excludes in-progress assistant tool-use turn",
 		);
+	}
+
+	const userOnlyTurn = SessionManager.create(tmpRoot, sessionsDir);
+	userOnlyTurn.appendModelChange("openai-codex", "gpt-5.4");
+	userOnlyTurn.appendThinkingLevelChange("minimal");
+	const userOnlyId = userOnlyTurn.appendMessage({
+		role: "user",
+		content: [{ type: "text", text: "Only user context so far" }],
+		timestamp: Date.now(),
+	});
+	userOnlyTurn.appendMessage(activeTurnToolUse);
+	userOnlyTurn.appendMessage({
+		role: "toolResult",
+		toolCallId: "call-1",
+		toolName: "read",
+		content: [{ type: "text", text: "README contents" }],
+		isError: false,
+		timestamp: Date.now(),
+	});
+	const userOnlyLeafId = userOnlyTurn.getLeafId();
+	assert(userOnlyLeafId !== null, "user-only fallback test leaf exists");
+	if (userOnlyLeafId) {
+		const selection = resolveBranchLeafSelection(userOnlyTurn.getBranch(userOnlyLeafId), userOnlyLeafId);
+		assert(selection.adjusted, "user-only unfinished turn still adjusts branch leaf");
+		assertEq(selection.leafId, userOnlyId, "user-only fallback branches from the latest user leaf");
+		assertEq(branchSelectionNote(selection), "branch(clean-turn:user-fallback)", "user-only fallback note is explicit");
+		const branchedPath = userOnlyTurn.createBranchedSession(selection.leafId);
+		assert(branchedPath !== null, "user-only fallback branch session created");
+		if (branchedPath) {
+			await ensureSessionFileMaterialized(userOnlyTurn, branchedPath);
+			assert(fs.existsSync(branchedPath), "user-only fallback materializes a real session file");
+		}
 	}
 
 	const completedTurn = SessionManager.create(tmpRoot, sessionsDir);
