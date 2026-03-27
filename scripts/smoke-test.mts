@@ -998,10 +998,61 @@ console.log("\n10b. branched sessions + inherited attach claims");
 		);
 	}
 
+	const compactedTurn = SessionManager.create(tmpRoot, sessionsDir);
+	compactedTurn.appendModelChange("openai-codex", "gpt-5.4");
+	compactedTurn.appendThinkingLevelChange("minimal");
+	compactedTurn.appendMessage({
+		role: "user",
+		content: [{ type: "text", text: "Earlier request" }],
+		timestamp: Date.now(),
+	});
+	const compactedAssistantId = compactedTurn.appendMessage(assistantMessage);
+	const compactionId = compactedTurn.appendCompaction("summarized", compactedAssistantId, 1234);
+	compactedTurn.appendMessage({
+		role: "user",
+		content: [{ type: "text", text: "Current request after compaction" }],
+		timestamp: Date.now(),
+	});
+	compactedTurn.appendMessage(activeTurnToolUse);
+	compactedTurn.appendMessage({
+		role: "toolResult",
+		toolCallId: "call-1",
+		toolName: "read",
+		content: [{ type: "text", text: "README contents" }],
+		isError: false,
+		timestamp: Date.now(),
+	});
+	const compactedLeafId = compactedTurn.getLeafId();
+	assert(compactedLeafId !== null, "compacted branch test leaf exists");
+	if (compactedLeafId) {
+		const selection = resolveBranchLeafSelection(compactedTurn.getBranch(compactedLeafId), compactedLeafId);
+		assert(selection.adjusted, "compacted unfinished turn adjusts branch leaf");
+		assertEq(selection.leafId, compactionId, "compacted unfinished turn branches from the entry immediately before the active user");
+		assert(selection.replayUserMessage?.role === "user", "compacted unfinished turn replays the active user request");
+		const branchedPath = compactedTurn.createBranchedSession(selection.leafId);
+		assert(branchedPath !== null, "compacted branch session created");
+		if (selection.replayUserMessage) {
+			compactedTurn.appendMessage(JSON.parse(JSON.stringify(selection.replayUserMessage)) as Parameters<typeof compactedTurn.appendMessage>[0]);
+		}
+		const childEntries = compactedTurn.getEntries();
+		assert(childEntries.some((entry) => entry.id === compactionId), "compacted child keeps the compaction entry before the active user");
+		assert(
+			childEntries.some(
+				(entry) =>
+					entry.type === "message" &&
+					isRecord(entry.message) &&
+					entry.message.role === "user" &&
+					JSON.stringify(entry.message.content).includes("Current request after compaction"),
+			),
+			"compacted child replays the active user after the preserved compaction boundary",
+		);
+		assertEq(branchSelectionNote(selection), "branch(clean-turn)", "compacted unfinished turn keeps clean-turn note");
+	}
+
 	const userOnlyTurn = SessionManager.create(tmpRoot, sessionsDir);
 	userOnlyTurn.appendModelChange("openai-codex", "gpt-5.4");
 	userOnlyTurn.appendThinkingLevelChange("minimal");
-	const userOnlyId = userOnlyTurn.appendMessage({
+	userOnlyTurn.appendMessage({
 		role: "user",
 		content: [{ type: "text", text: "Only user context so far" }],
 		timestamp: Date.now(),
@@ -1020,10 +1071,14 @@ console.log("\n10b. branched sessions + inherited attach claims");
 	if (userOnlyLeafId) {
 		const selection = resolveBranchLeafSelection(userOnlyTurn.getBranch(userOnlyLeafId), userOnlyLeafId);
 		assert(selection.adjusted, "user-only unfinished turn still adjusts branch leaf");
-		assertEq(selection.leafId, userOnlyId, "user-only fallback branches from the latest user leaf");
-		assertEq(branchSelectionNote(selection), "branch(clean-turn:user-fallback)", "user-only fallback note is explicit");
+		assert(selection.leafId !== userOnlyLeafId, "user-only fallback rewinds away from the active unfinished leaf");
+		assert(selection.replayUserMessage?.role === "user", "user-only fallback keeps the active user message for replay");
+		assertEq(branchSelectionNote(selection), "branch(clean-turn)", "user-only fallback keeps the clean-turn note");
 		const branchedPath = userOnlyTurn.createBranchedSession(selection.leafId);
 		assert(branchedPath !== null, "user-only fallback branch session created");
+		if (selection.replayUserMessage) {
+			userOnlyTurn.appendMessage(JSON.parse(JSON.stringify(selection.replayUserMessage)) as Parameters<typeof userOnlyTurn.appendMessage>[0]);
+		}
 		if (branchedPath) {
 			await ensureSessionFileMaterialized(userOnlyTurn, branchedPath);
 			assert(fs.existsSync(branchedPath), "user-only fallback materializes a real session file");

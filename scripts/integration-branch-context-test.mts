@@ -127,6 +127,7 @@ const stableAssistantId = parent.appendMessage({
 	stopReason: "stop",
 	timestamp: Date.now(),
 });
+const compactionId = parent.appendCompaction("summarized", stableAssistantId, 1234);
 const currentUserId = parent.appendMessage({
 	role: "user",
 	content: [{ type: "text", text: "Investigate the repo, then delegate part of it." }],
@@ -167,7 +168,7 @@ if (!parentLeafId) {
 
 const selection = resolveBranchLeafSelection(parent.getBranch(parentLeafId), parentLeafId);
 assert(selection.adjusted, "expected unfinished turn branch selection to adjust away from active leaf");
-assert(selection.leafId === stableAssistantId, `expected branch selection to use stable assistant id, got ${selection.leafId}`);
+assert(selection.leafId === compactionId, `expected branch selection to use the stable pre-user boundary id, got ${selection.leafId}`);
 assert(branchSelectionNote(selection) === "branch(clean-turn)", "expected clean-turn branch note");
 assert(selection.replayUserMessage?.role === "user", "expected the active user request to be replayed into the cleaned child branch");
 
@@ -182,6 +183,7 @@ if (selection.replayUserMessage) {
 
 const childEntries = parent.getEntries();
 assert(childEntries.some((entry) => entry.id === stableAssistantId), "child session should retain the latest completed assistant message");
+assert(childEntries.some((entry) => entry.id === compactionId), "child session should retain the compaction entry before the active user");
 assert(!childEntries.some((entry) => entry.id === currentUserId), "child session should drop the original unfinished-turn user entry");
 assert(
 	childEntries.some(

@@ -5,7 +5,7 @@ import type { SessionEntry, SessionManager } from "@mariozechner/pi-coding-agent
 export type BranchLeafSelection = {
 	leafId: string;
 	adjusted: boolean;
-	reason: "requested" | "clean-turn-assistant" | "clean-turn-user";
+	reason: "requested" | "clean-turn-replay" | "clean-turn-stable" | "clean-turn-user";
 	replayUserMessage?: UserMessageLike;
 };
 
@@ -71,13 +71,27 @@ export function resolveBranchLeafSelection(path: SessionEntry[], requestedLeafId
 		return { leafId: requestedLeafId, adjusted: false, reason: "requested" };
 	}
 
+	let latestUserIndex = -1;
 	let latestUserBeforeActiveTurn: UserMessageLike | undefined;
 	for (let i = lastAssistantIndex - 1; i >= 0; i -= 1) {
 		const candidate = path[i];
 		if (!candidate) continue;
 		if (isUserMessageEntry(candidate)) {
+			latestUserIndex = i;
 			latestUserBeforeActiveTurn = candidate.message;
 			break;
+		}
+	}
+
+	if (latestUserIndex > 0 && latestUserBeforeActiveTurn) {
+		const boundary = path[latestUserIndex - 1];
+		if (boundary) {
+			return {
+				leafId: boundary.id,
+				adjusted: boundary.id !== requestedLeafId,
+				reason: "clean-turn-replay",
+				replayUserMessage: latestUserBeforeActiveTurn,
+			};
 		}
 	}
 
@@ -88,15 +102,9 @@ export function resolveBranchLeafSelection(path: SessionEntry[], requestedLeafId
 			return {
 				leafId: candidate.id,
 				adjusted: candidate.id !== requestedLeafId,
-				reason: "clean-turn-assistant",
-				replayUserMessage: latestUserBeforeActiveTurn,
+				reason: "clean-turn-stable",
 			};
 		}
-	}
-
-	for (let i = lastAssistantIndex - 1; i >= 0; i -= 1) {
-		const candidate = path[i];
-		if (!candidate) continue;
 		if (isUserMessageEntry(candidate)) {
 			return { leafId: candidate.id, adjusted: candidate.id !== requestedLeafId, reason: "clean-turn-user" };
 		}
@@ -119,7 +127,7 @@ export async function ensureSessionFileMaterialized(
 
 export function branchSelectionNote(selection: BranchLeafSelection): string {
 	if (!selection.adjusted) return "branch";
-	if (selection.reason === "clean-turn-assistant") return "branch(clean-turn)";
+	if (selection.reason === "clean-turn-replay" || selection.reason === "clean-turn-stable") return "branch(clean-turn)";
 	if (selection.reason === "clean-turn-user") return "branch(clean-turn:user-fallback)";
 	return "branch";
 }
