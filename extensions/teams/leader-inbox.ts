@@ -91,12 +91,14 @@ export async function pollLeaderInbox(opts: {
 	style: TeamsStyle;
 	pendingPlanApprovals: Map<string, { requestId: string; name: string; taskId?: string }>;
 	enqueueHook?: (invocation: TeamsHookInvocation) => void;
+	hooksEnabled?: boolean;
 	sendLeaderLlmMessage?: SendLeaderLlmMessage;
 	/** Batch delegation tracker for all-tasks-complete auto-notify. */
 	delegationTracker?: DelegationTracker;
 }): Promise<void> {
-	const { ctx, teamId, teamDir, taskListId, leadName, style, pendingPlanApprovals, enqueueHook, sendLeaderLlmMessage, delegationTracker } = opts;
+	const { ctx, teamId, teamDir, taskListId, leadName, style, pendingPlanApprovals, enqueueHook, hooksEnabled, sendLeaderLlmMessage, delegationTracker } = opts;
 	const strings = getTeamsStrings(style);
+	const hooksActive = hooksEnabled ?? Boolean(enqueueHook);
 
 	let msgs: Awaited<ReturnType<typeof popUnreadMessages>>;
 	try {
@@ -173,37 +175,41 @@ export async function pollLeaderInbox(opts: {
 			const name = sanitizeName(idle.from);
 
 			// Hook: always emit "idle" (best-effort, non-blocking)
-			try {
-				enqueueHook?.({
-					event: "idle",
-					teamId,
-					teamDir,
-					taskListId,
-					style,
-					memberName: name,
-					timestamp: idle.timestamp,
-					completedTask: null,
-				});
-			} catch {
-				// ignore hook enqueue errors
-			}
-
-			// Hook: task completion / failure
-			if (idle.completedTaskId) {
-				const completedTask = await getTask(teamDir, taskListId, idle.completedTaskId);
+			if (hooksActive) {
 				try {
 					enqueueHook?.({
-						event: idle.completedStatus === "failed" ? "task_failed" : "task_completed",
+						event: "idle",
 						teamId,
 						teamDir,
 						taskListId,
 						style,
 						memberName: name,
 						timestamp: idle.timestamp,
-						completedTask,
+						completedTask: null,
 					});
 				} catch {
 					// ignore hook enqueue errors
+				}
+			}
+
+			// Hook: task completion / failure
+			if (idle.completedTaskId) {
+				const completedTask = await getTask(teamDir, taskListId, idle.completedTaskId);
+				if (hooksActive) {
+					try {
+						enqueueHook?.({
+							event: idle.completedStatus === "failed" ? "task_failed" : "task_completed",
+							teamId,
+							teamDir,
+							taskListId,
+							style,
+							memberName: name,
+							timestamp: idle.timestamp,
+							completedTask,
+						});
+					} catch {
+						// ignore hook enqueue errors
+					}
 				}
 
 				// Event-driven batch tracking: mark this task done and
@@ -319,7 +325,7 @@ export async function pollLeaderInbox(opts: {
 
 						if (allDone) {
 							lines.push("");
-							if (enqueueHook) {
+							if (hooksActive) {
 								// Hooks run asynchronously and may reopen tasks or create follow-ups.
 								lines.push(`All ${totalTasks} task(s) show completed — quality gates are still running and may change task states.`);
 							} else {
@@ -354,7 +360,7 @@ export async function pollLeaderInbox(opts: {
 	if (sendLeaderLlmMessage) {
 		for (const batch of batchCompletions) {
 			const taskRefs = batch.taskIds.map((id) => `#${id}`).join(", ");
-			const suffix = enqueueHook
+			const suffix = hooksActive
 				? "Quality gates are still running and may change task states."
 				: "Review the results and continue.";
 			const msg = `[Team] All delegated tasks completed (${taskRefs}). ${suffix}`;

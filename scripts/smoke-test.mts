@@ -69,7 +69,7 @@ import {
 	isPlanApprovedMessage,
 	isPlanRejectedMessage,
 } from "../extensions/teams/protocol.js";
-import { pollLeaderInbox } from "../extensions/teams/leader-inbox.js";
+import { DelegationTracker, pollLeaderInbox } from "../extensions/teams/leader-inbox.js";
 import { getParentSessionId, shouldSilenceInheritedParentAttachClaimWarning } from "../extensions/teams/session-parent.js";
 import { branchSelectionNote, ensureSessionFileMaterialized, resolveBranchLeafSelection } from "../extensions/teams/session-branching.js";
 import { SessionManager, type ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -1309,6 +1309,7 @@ console.log("\n14. leader-inbox LLM message injection");
 		cwd: inboxTeamDir,
 		ui: { notify: () => {} },
 		sessionManager: { getSessionId: () => "inbox-team" },
+		isIdle: () => false,
 	} as unknown as ExtensionContext;
 
 	await pollLeaderInbox({
@@ -1415,7 +1416,8 @@ console.log("\n14. leader-inbox LLM message injection");
 		leadName,
 		style,
 		pendingPlanApprovals: new Map(),
-		enqueueHook: () => {}, // hooks present → should qualify allDone
+		enqueueHook: () => {},
+		hooksEnabled: true,
 		sendLeaderLlmMessage: (content, options) => {
 			llmMessages.push({ content, options });
 		},
@@ -1426,6 +1428,88 @@ console.log("\n14. leader-inbox LLM message injection");
 	if (hookMsg) {
 		assert(hookMsg.content.includes("quality gates are still running"), "allDone qualified when hooks active");
 		assert(!hookMsg.content.includes("Review results and determine next steps"), "no premature wrap-up prompt when hooks active");
+	}
+
+	// Hooks disabled should not qualify all-done messages just because a callback is wired.
+	const t4 = await createTask(inboxTeamDir, inboxTaskListId, { subject: "Post-review cleanup", description: "", owner: "dave" });
+	await completeTask(inboxTeamDir, inboxTaskListId, t4.id, "dave", "Cleanup complete");
+	const ts4 = new Date().toISOString();
+	await writeToMailbox(inboxTeamDir, TEAM_MAILBOX_NS, leadName, {
+		from: "dave",
+		text: JSON.stringify({
+			type: "idle_notification",
+			from: "dave",
+			timestamp: ts4,
+			completedTaskId: t4.id,
+			completedStatus: "completed",
+		}),
+		timestamp: ts4,
+	});
+
+	llmMessages.length = 0;
+	await pollLeaderInbox({
+		ctx: stubCtx,
+		teamId: "inbox-team",
+		teamDir: inboxTeamDir,
+		taskListId: inboxTaskListId,
+		leadName,
+		style,
+		pendingPlanApprovals: new Map(),
+		enqueueHook: () => {},
+		hooksEnabled: false,
+		sendLeaderLlmMessage: (content, options) => {
+			llmMessages.push({ content, options });
+		},
+	});
+
+	assert(llmMessages.length === 1, "one LLM message sent when hooks callback is wired but disabled");
+	const disabledHookMsg = llmMessages[0];
+	if (disabledHookMsg) {
+		assert(!disabledHookMsg.content.includes("quality gates are still running"), "disabled hooks do not qualify the per-task allDone summary");
+		assert(disabledHookMsg.content.includes("Review results and determine next steps"), "disabled hooks keep the normal per-task allDone summary");
+	}
+
+	// Batch-complete auto-wake should use the same hooks-enabled check.
+	const t5 = await createTask(inboxTeamDir, inboxTaskListId, { subject: "Batch wake task", description: "", owner: "erin" });
+	await completeTask(inboxTeamDir, inboxTaskListId, t5.id, "erin", "Batch wake done");
+	const ts5 = new Date().toISOString();
+	await writeToMailbox(inboxTeamDir, TEAM_MAILBOX_NS, leadName, {
+		from: "erin",
+		text: JSON.stringify({
+			type: "idle_notification",
+			from: "erin",
+			timestamp: ts5,
+			completedTaskId: t5.id,
+			completedStatus: "completed",
+		}),
+		timestamp: ts5,
+	});
+
+	const batchTracker = new DelegationTracker();
+	batchTracker.addBatch([t5.id]);
+	llmMessages.length = 0;
+	await pollLeaderInbox({
+		ctx: stubCtx,
+		teamId: "inbox-team",
+		teamDir: inboxTeamDir,
+		taskListId: inboxTaskListId,
+		leadName,
+		style,
+		pendingPlanApprovals: new Map(),
+		enqueueHook: () => {},
+		hooksEnabled: false,
+		delegationTracker: batchTracker,
+		sendLeaderLlmMessage: (content, options) => {
+			llmMessages.push({ content, options });
+		},
+	});
+
+	assert(llmMessages.length === 2, "per-task completion plus batch-complete messages sent when a tracked delegation finishes");
+	const batchMsg = llmMessages.find((entry) => entry.content.includes("All delegated tasks completed"));
+	assert(batchMsg !== undefined, "batch-complete notification sent");
+	if (batchMsg) {
+		assert(!batchMsg.content.includes("Quality gates are still running"), "disabled hooks do not qualify the batch-complete summary");
+		assert(batchMsg.content.includes("Review the results and continue."), "disabled hooks keep the normal batch-complete summary");
 	}
 }
 

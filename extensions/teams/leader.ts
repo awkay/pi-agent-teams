@@ -22,6 +22,7 @@ import { getTeamsStyleFromEnv, type TeamsStyle, formatMemberDisplayName, getTeam
 import { DelegationTracker, pollLeaderInbox as pollLeaderInboxImpl } from "./leader-inbox.js";
 import {
 	getHookBaseName,
+	areTeamsHooksEnabled,
 	getTeamsHookFailureAction,
 	getTeamsHookFollowupOwnerPolicy,
 	getTeamsHookMaxReopensPerTask,
@@ -708,6 +709,7 @@ export function runLeader(pi: ExtensionAPI): void {
 			style,
 			pendingPlanApprovals,
 			enqueueHook,
+			hooksEnabled: areTeamsHooksEnabled(process.env),
 			sendLeaderLlmMessage: (content, options) => {
 				pi.sendUserMessage(content, options);
 			},
